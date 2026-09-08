@@ -26,8 +26,6 @@ jobs:
 
     # Step 1: Bing Image Generation
     - name: Run Bing Image Generator
-      env:
-        BING_COOKIE: ${{ secrets.BING_COOKIE }}
       run: python main.py --machine_id ${{ matrix.machine_id }} --total_machines 5
 
     # Step 2: Upsampler Video Generation
