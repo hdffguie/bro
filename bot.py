@@ -1,19 +1,20 @@
+import asyncio
 import os
 import time
 import requests
-from gradio_client import Client
+from playwright.async_api import async_playwright
 
 BOT_TOKEN = "8350328141:AAGjLVuJO6QvNb9v2NyoqbjevqNgR5WKJHk"
 CHAT_ID = "8571870755"
 
-# 5 Alag Public Spaces (Bina Token Ke Chalne Wale)
-PUBLIC_SPACES = [
-    "Lightricks/LTX-Video-Playground",
-    "KingNish/LTX-Video-ZeroGPU",
-    "aipicasso/LTX-Video-0.9.1",
-    "Wan-Video/Wan2.1-T2V-1.3B",
-    "THUDM/CogVideoX-5B-Space"
-]
+def send_telegram_photo(image_path, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    try:
+        if os.path.exists(image_path):
+            with open(image_path, "rb") as file:
+                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+    except Exception as e:
+        print(f"[Telegram Photo Error]: {e}")
 
 def send_telegram_video(video_path, caption=""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
@@ -21,62 +22,139 @@ def send_telegram_video(video_path, caption=""):
         if os.path.exists(video_path):
             with open(video_path, "rb") as file:
                 requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"video": file}, timeout=120)
-            print("Telegram par video bhej di gayi!")
     except Exception as e:
-        print(f"[Telegram Exception]: {e}")
+        print(f"[Telegram Video Error]: {e}")
 
-def main():
+async def main():
     prompt = os.getenv("PROMPT")
     prompt_num = os.getenv("PROMPT_NUM", "1")
 
     if not prompt:
-        print("PROMPT variable missing!")
+        print("No PROMPT provided!")
         return
 
-    # Machine number ke hisab se alag Space allocate karna (No Collision)
-    space_index = (int(prompt_num) - 1) % len(PUBLIC_SPACES)
-    target_space = PUBLIC_SPACES[space_index]
+    # Har machine 12-12 second ke gap par chalegi
+    stagger = (int(prompt_num) - 1) * 12
+    if stagger > 0:
+        print(f"Machine #{prompt_num} waiting {stagger}s before launch...")
+        await asyncio.sleep(stagger)
 
-    print(f"🚀 Machine #{prompt_num} connecting to Public Space: {target_space}")
+    print(f"Machine Started for Prompt #{prompt_num}: {prompt}")
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(accept_downloads=True)
+        page = await context.new_page()
+
         try:
-            # Directly connect without any HF Token
-            client = Client(target_space)
-            
-            print(f"🎬 Video generation in progress for Machine #{prompt_num} (Attempt {attempt+1})...")
-            
-            # Gradio API Call
-            result = client.predict(
-                prompt=prompt,
-                negative_prompt="worst quality, low quality, blurry",
-                height=480,
-                width=704,
-                num_frames=121,
-                frame_rate=24,
-                seed=42,
-                api_name="/generate_video"
-            )
+            await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="domcontentloaded", timeout=60000)
 
-            video_path = result if isinstance(result, str) else result[0]
-            
-            # Download file locally for Artifact upload
-            output_file = f"generated_video_{prompt_num}.mp4"
-            if os.path.exists(video_path):
-                os.rename(video_path, output_file)
-            
-            send_telegram_video(output_file, f"✅ Video #{prompt_num} Ready!\n📌 Source: {target_space}\n📌 Prompt: {prompt}")
-            return
+            # Cookie Accept
+            try:
+                accept_btn = page.get_by_role("button", name="Accept")
+                await accept_btn.click(timeout=3000)
+            except Exception:
+                pass
+
+            # Fill Prompt
+            await page.evaluate("window.scrollBy(0, 300)")
+            prompt_input = page.get_by_placeholder("Enter a prompt to generate a video...")
+            await prompt_input.fill(prompt)
+
+            # Duration 5s
+            try:
+                duration_dropdown = page.get_by_text("3 seconds")
+                if await duration_dropdown.is_visible():
+                    await duration_dropdown.click()
+                    await page.get_by_text("5 seconds", exact=True).click()
+            except Exception:
+                pass
+
+            generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
+            gpu_error_text = page.get_by_text("free GPUs are in high demand", exact=False)
+
+            video_started = False
+            for attempt in range(1, 35):
+                print(f"Machine #{prompt_num} - Attempt {attempt} to click Generate...")
+                
+                try:
+                    if await generate_btn.is_visible():
+                        await generate_btn.click(timeout=3000, force=True)
+                except Exception:
+                    pass
+
+                await asyncio.sleep(5)
+
+                if await gpu_error_text.is_visible():
+                    print(f"[GPU Busy] Machine #{prompt_num} - Retrying in 7s...")
+                    await asyncio.sleep(7)
+                    
+                    # Har 5 failed attempts ke baad fresh page reload
+                    if attempt % 5 == 0:
+                        print(f"Reloading page for Machine #{prompt_num}...")
+                        await page.reload(wait_until="domcontentloaded")
+                        await asyncio.sleep(3)
+                        await page.evaluate("window.scrollBy(0, 300)")
+                        await prompt_input.fill(prompt)
+                else:
+                    print(f"Generation successfully started for Machine #{prompt_num}!")
+                    video_started = True
+                    break
+
+            if not video_started:
+                raise Exception("GPU busy error persisted after 35 attempts.")
+
+            # Wait for Video Completion
+            see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
+            video_element = page.locator("video:not([src*='_static'])").first
+
+            start_time = time.time()
+            video_ready = False
+
+            while time.time() - start_time < 360:
+                await asyncio.sleep(3)
+
+                if await see_result_btn.is_visible():
+                    try:
+                        await see_result_btn.click(timeout=3000)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2)
+
+                if await video_element.count() > 0 and await video_element.is_visible():
+                    video_ready = True
+                    break
+
+            if not video_ready:
+                raise Exception("Video generation timed out after 6 minutes.")
+
+            # Download Video
+            video_filename = f"generated_video_{prompt_num}.mp4"
+            video_src = await video_element.get_attribute("src")
+
+            if video_src:
+                download_btn = page.locator("a:has-text('Download'), button:has-text('Download')").first
+                if await download_btn.is_visible():
+                    async with page.expect_download() as download_info:
+                        await download_btn.click()
+                    download = await download_info.value
+                    await download.save_as(video_filename)
+                else:
+                    video_data = requests.get(video_src).content
+                    with open(video_filename, "wb") as f:
+                        f.write(video_data)
+
+                send_telegram_video(video_filename, f"✅ Video #{prompt_num} Ready!\n📌 Prompt: {prompt}")
 
         except Exception as e:
-            print(f"❌ Attempt {attempt+1} failed on {target_space}: {e}")
-            # Switch to next space if current space is temporarily busy
-            space_index = (space_index + 1) % len(PUBLIC_SPACES)
-            target_space = PUBLIC_SPACES[space_index]
-            time.sleep(5)
+            print(f"Error Machine #{prompt_num}: {e}")
+            error_img = f"error_{prompt_num}.png"
+            await page.screenshot(path=error_img)
+            send_telegram_photo(error_img, f"❌ Error Machine #{prompt_num}: {e}")
+            raise e
 
-    print(f"Machine #{prompt_num} completely failed after retries.")
+        finally:
+            await browser.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
