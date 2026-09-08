@@ -36,15 +36,16 @@ def generate_text_to_video():
         print(f"❌ TEST FAILED: Hugging Face space se connect nahi ho paye. Error: {e}")
         return False
 
-    # Step 3: Trigger Video Generation (FIXED BY ADDING fn_index)
+    # Step 3: Trigger Video Generation (FIXED BY PASSING POSITIONAL ARGUMENTS)
     try:
         print("🔄 Step 3: LTX 2.5 Model ko request bhej di hai... Processing chal rahi hai...")
         start_time = time.time()
         
-        # FIXED: fn_index=0 specify kiya hai taaki multiple endpoints ka confusion khatam ho jaye
+        # FIXED: Keyword hata kar positional arguments pass kiye hain.
+        # Order: 1st argument=prompt, 2nd argument=negative_prompt
         result = client.predict(
-            prompt=prompt_text,
-            negative_prompt=negative_prompt_text,
+            prompt_text,
+            negative_prompt_text,
             fn_index=0
         )
         
@@ -69,7 +70,7 @@ def generate_text_to_video():
     except Exception as e:
         print("\n❌ TEST FAILED: Processing ke dauran error aayi.")
         print(f"📝 Error Details: {e}")
-        print("💡 Tip: Agar server responsive nahi hai ya queue lambi hai, to thodi der baad fir se 'Re-run job' karein.")
+        print("💡 Tip: Agar server par zyada traffic hai to thodi der baad fir se 'Re-run job' karein.")
         return False
 
 if __name__ == "__main__":
