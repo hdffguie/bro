@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import requests
+import math
 from playwright.async_api import async_playwright
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -82,8 +83,6 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
     await file_input.set_input_files(image_path)
     await asyncio.sleep(3)
 
-    # Universal Prompt Locator (Works with both input & textarea)
-    prompt_filled = False
     selectors = [
         "input[placeholder*='prompt' i]",
         "textarea[placeholder*='prompt' i]",
@@ -97,7 +96,6 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
         if await loc.is_visible(timeout=2000):
             try:
                 await loc.fill(motion_prompt)
-                prompt_filled = True
                 print(f"✍️ Filled prompt with selector: {sel}")
                 break
             except Exception:
@@ -201,7 +199,6 @@ async def main():
         print("❌ No images found in bing_automated_images folder!")
         return
 
-    # Machine Task Division Formula Fix
     chunk_size = math.ceil(len(all_images) / total_machines)
     start_idx = (machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, len(all_images))
@@ -218,7 +215,6 @@ async def main():
         context = await browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720})
         page = await context.new_page()
 
-        # Monitor Every 8 Seconds
         monitor_task = asyncio.create_task(live_screenshot_monitor(page, machine_id, interval=8))
 
         for img_name in assigned_images:
