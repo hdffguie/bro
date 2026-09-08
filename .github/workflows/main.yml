@@ -1,11 +1,48 @@
-name: Playwright Video Generator Automation
+name: Dynamic Multi-IP Video Generator
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-automation:
+  prepare-prompts:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v4
+
+      - name: Read prompt.txt and Create Matrix
+        id: set-matrix
+        run: |
+          if [ ! -f prompt.txt ]; then
+            echo "A cinematic shot of a futuristic city with flying cars at sunset" > prompt.txt
+            echo "A cute panda drinking tea in a traditional Japanese garden" >> prompt.txt
+          fi
+
+          python3 -c '
+          import json, os
+
+          prompts = []
+          if os.path.exists("prompt.txt"):
+              with open("prompt.txt", "r", encoding="utf-8") as f:
+                  lines = [line.strip() for line in f if line.strip()]
+                  for idx, p in enumerate(lines, start=1):
+                      prompts.append({"num": str(idx), "prompt": p})
+
+          matrix_json = json.dumps(prompts)
+          print("Generated Matrix:", matrix_json)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"matrix={matrix_json}\n")
+          '
+
+  run-single-prompt-per-ip:
+    needs: prepare-prompts
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1  # 1 machine khatam hone par hi dusri fresh IP wali machine khulegi
+      matrix:
+        include: ${{ fromJson(needs.prepare-prompts.outputs.matrix) }}
 
     steps:
       - name: Code Checkout
@@ -16,18 +53,21 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Dependencies Install Karein
+      - name: Dependencies Install
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
           playwright install chromium --with-deps
 
-      - name: Playwright Script Run Karein
+      - name: Run Automation (Fresh Machine IP)
+        env:
+          PROMPT: ${{ matrix.prompt }}
+          PROMPT_NUM: ${{ matrix.num }}
         run: python bot.py
 
-      - name: Error Screenshot Upload (GitHub Artifacts)
+      - name: Upload Artifact on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: error-screenshots
+          name: error-screenshot-${{ matrix.num }}
           path: "*.png"
