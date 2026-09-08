@@ -16,7 +16,6 @@ def read_prompts():
     for line in lines:
         if "|" in line:
             image_prompt = line.split("|")[0].strip()
-            # Prefix index number if exists
             if image_prompt and image_prompt[0].isdigit() and "." in image_prompt[:4]:
                 image_prompt = image_prompt.split(".", 1)[1].strip()
             prompts.append(image_prompt)
@@ -24,8 +23,6 @@ def read_prompts():
 
 async def generate_bing_image(page, prompt, image_index):
     print(f"🎨 Generating Image #{image_index}: {prompt[:50]}...")
-    
-    # Bing Image Creator URL
     await page.goto("https://www.bing.com/images/create", wait_until="networkidle")
     
     # Fill Prompt
@@ -36,17 +33,14 @@ async def generate_bing_image(page, prompt, image_index):
     create_btn = page.locator("#create_btn_div")
     await create_btn.click()
     
-    # Wait for image generation (max 120 seconds)
     try:
         await page.wait_for_selector(".mimg", timeout=120000)
         await asyncio.sleep(5)
         
-        # Click first image
         first_img = page.locator(".mimg").first
         await first_img.click()
         await asyncio.sleep(3)
         
-        # Download Image
         img_element = page.locator("img.mainImage").first
         img_url = await img_element.get_attribute("src")
         
@@ -73,7 +67,6 @@ async def main():
         print("❌ No valid prompts found in prompts.txt!")
         return
 
-    # Split workload across machines
     chunk_size = total_prompts // args.total_machines + (1 if total_prompts % args.total_machines != 0 else 0)
     start_idx = (args.machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, total_prompts)
@@ -81,21 +74,9 @@ async def main():
     assigned_prompts = [(i + 1, all_prompts[i]) for i in range(start_idx, end_idx)]
     print(f"🖥️ Machine {args.machine_id} handling {len(assigned_prompts)} image tasks.")
 
-    bing_cookie = os.getenv("BING_COOKIE", "")
-
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
-        
-        # Add Bing Cookie if set in environment
-        if bing_cookie:
-            await context.add_cookies([{
-                'name': '_U',
-                'value': bing_cookie,
-                'domain': '.bing.com',
-                'path': '/'
-            }])
-
         page = await context.new_page()
 
         for img_num, prompt in assigned_prompts:
