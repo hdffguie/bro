@@ -1,0 +1,51 @@
+name: Automated Image and Video Generator Pipeline
+
+on: workflow_dispatch
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        machine_id: [1, 2, 3, 4, 5]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        playwright install chromium
+
+    # Step 1: Bing Image Generation
+    - name: Run Bing Image Generator
+      env:
+        BING_COOKIE: ${{ secrets.BING_COOKIE }}
+      run: python main.py --machine_id ${{ matrix.machine_id }} --total_machines 5
+
+    # Step 2: Upsampler Video Generation
+    - name: Run Upsampler Video Generator
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: python generate_video.py ${{ matrix.machine_id }} 5
+
+    # Step 3: Save Output Artifacts
+    - name: Save Images
+      uses: actions/upload-artifact@v4
+      with:
+        name: Images_Machine_${{ matrix.machine_id }}
+        path: bing_automated_images/
+
+    - name: Save Videos
+      uses: actions/upload-artifact@v4
+      with:
+        name: Videos_Machine_${{ matrix.machine_id }}
+        path: generated_videos/
