@@ -64,7 +64,7 @@ def run_browser_worker(worker_id, tasks_list):
                 
                 search_box = page.get_by_placeholder("Describe the image you want to create")
                 if not search_box.is_visible():
-                    search_box = page.locator("textarea[name='q'], #sb_form_q, textarea").first
+                    search_box = page.locator("textarea[name='q'], #sb_form_q, textarea, input[type='text']").first
                 
                 search_box.fill("")
                 search_box.fill(prompt_text)
@@ -92,14 +92,14 @@ def run_browser_worker(worker_id, tasks_list):
                             break
                     
                     if img_url:
-                        # 1. Image milne par 5 second pehle Telegram screenshot
+                        # Download se thik 5 sec pehle screenshot
                         pre_shot = os.path.join(SAVE_FOLDER, f"pre_download_{image_num}.png")
                         page.screenshot(path=pre_shot)
                         send_telegram_photo(pre_shot, f"📸 Image #{image_num} Ready! Downloading in 5 seconds...")
                         time.sleep(5)
                         break 
                 
-                # 2. Image Download & Final Single Upload to Telegram
+                # Single download & Telegram push
                 if img_url:
                     filepath = os.path.join(SAVE_FOLDER, f"Generated_Image_{image_num}.jpg")
                     if download_image(img_url, filepath):
