@@ -42,9 +42,13 @@ async def main():
         print("No PROMPT environment variable provided!")
         return
 
-    # Staggered delay taaki Telegram messages parallelly safe bheje ja sakein
-    stagger_offset = (int(prompt_num) % 5) * 2
-    await asyncio.sleep(stagger_offset)
+    # Har machine ke beech 10 second ka exact gap (1st: 0s, 2nd: 10s, 3rd: 20s, 4th: 30s, 5th: 40s)
+    prompt_index = int(prompt_num) - 1
+    stagger_offset = (prompt_index % 5) * 10
+    
+    if stagger_offset > 0:
+        print(f"Machine #{prompt_num} is waiting {stagger_offset} seconds before starting...")
+        await asyncio.sleep(stagger_offset)
 
     print(f"Machine Started for Prompt #{prompt_num}: {prompt}")
 
@@ -78,24 +82,30 @@ async def main():
 
             await capture_and_send_status(page, prompt_num, "Prompt & 5s Duration set")
 
-            # 4. Generate Click with GPU High Demand Auto-Retry Loop
+            # 4. Generate Click with Safe GPU High Demand Retry Loop
             generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
             gpu_error_text = page.get_by_text("free GPUs are in high demand", exact=False)
 
-            max_retries = 20
+            max_retries = 25
             retry_count = 0
             generation_started = False
 
             while retry_count < max_retries:
                 retry_count += 1
                 print(f"Attempt #{retry_count}: Clicking Generate Video...")
-                await generate_btn.click()
-                await asyncio.sleep(4)  # Check karne ke liye sleep
+                
+                try:
+                    if await generate_btn.is_visible():
+                        await generate_btn.click(timeout=5000)
+                except Exception as click_err:
+                    print(f"Generate button click skipped or failed: {click_err}")
+
+                await asyncio.sleep(4)
 
                 # Check agar red error popup aaya hai
                 if await gpu_error_text.is_visible():
-                    print(f"[GPU Busy Error] Attempt {retry_count}/{max_retries}. 5 second wait karke dobara click kar rahe hain...")
-                    await capture_and_send_status(page, prompt_num, f"⚠️ GPU Busy Error! Dobara Retry Click ({retry_count}/{max_retries})...")
+                    print(f"[GPU Busy Error] Attempt {retry_count}/{max_retries}. 5 second wait karke retry karenge...")
+                    await capture_and_send_status(page, prompt_num, f"⚠️ GPU Busy Error! Retry ({retry_count}/{max_retries})...")
                     await asyncio.sleep(5)
                 else:
                     print("Generation successfully start ho gayi!")
@@ -119,10 +129,14 @@ async def main():
 
                 current_time = time.time()
                 if current_time - last_screenshot_time >= 10:
-                    # Retry check during generation if error pops up again
+                    # Safe check for mid-process GPU error without throwing timeout exceptions
                     if await gpu_error_text.is_visible():
-                        print("Mid-process GPU error detected, re-clicking generate...")
-                        await generate_btn.click()
+                        print("Mid-process GPU error detected, checking generate button...")
+                        try:
+                            if await generate_btn.is_visible():
+                                await generate_btn.click(timeout=3000)
+                        except Exception:
+                            pass
 
                     await capture_and_send_status(page, prompt_num, "Video process ho rahi hai...")
                     last_screenshot_time = current_time
