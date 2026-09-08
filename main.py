@@ -30,17 +30,19 @@ def download_image(url, filename):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
-        print(f"📥 Downloading: {url[:60]}...") 
         response = requests.get(url, headers=headers, stream=True, timeout=30)
         if response.status_code == 200:
             with open(filename, 'wb') as f:
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
             print(f"✅ SAVED: {filename}")
+            return True
         else:
-            print(f"❌ Failed! Status Code: {response.status_code}")
+            print(f"❌ Download Failed! Status Code: {response.status_code}")
+            return False
     except Exception as e:
         print(f"❌ Error during download: {e}")
+        return False
 
 def run_browser_worker(worker_id, tasks_list):
     print(f"🤖 Worker {worker_id} started! Processing {len(tasks_list)} images...")
@@ -58,7 +60,7 @@ def run_browser_worker(worker_id, tasks_list):
                 page.goto("https://www.bing.com/images/create", timeout=60000)
                 time.sleep(3) 
                 
-                print(f"[Worker {worker_id}] Typing for Image {image_num} | Prompt: {prompt_text[:50]}...")
+                print(f"[Worker {worker_id}] Processing Image #{image_num}...")
                 
                 search_box = page.get_by_placeholder("Describe the image you want to create")
                 if not search_box.is_visible():
@@ -71,9 +73,7 @@ def run_browser_worker(worker_id, tasks_list):
                 generate_btn = page.locator("button:has-text('Generate'), button:has-text('Create'), #create_btn_div, #create_btn_c").first
                 generate_btn.click()
                 
-                print(f"[Worker {worker_id}] Waiting max 90s for Image {image_num}...")
                 img_url = None
-                
                 for attempt in range(45):
                     time.sleep(2) 
                     all_images = page.evaluate("""() => {
@@ -92,32 +92,27 @@ def run_browser_worker(worker_id, tasks_list):
                             break
                     
                     if img_url:
-                        print(f"[Worker {worker_id}] 🎉 Image {image_num} ready on screen!")
-                        
-                        # Screenshot 5 seconds before download
-                        pre_shot = os.path.join(SAVE_FOLDER, f"pre_download_Image_{image_num}.png")
+                        # 1. Image milne par 5 second pehle Telegram screenshot
+                        pre_shot = os.path.join(SAVE_FOLDER, f"pre_download_{image_num}.png")
                         page.screenshot(path=pre_shot)
-                        send_telegram_photo(pre_shot, f"📸 Image #{image_num} Generated! Downloading in 5 seconds...")
-                        
-                        time.sleep(5) # Wait 5 seconds
+                        send_telegram_photo(pre_shot, f"📸 Image #{image_num} Ready! Downloading in 5 seconds...")
+                        time.sleep(5)
                         break 
                 
+                # 2. Image Download & Final Single Upload to Telegram
                 if img_url:
                     filepath = os.path.join(SAVE_FOLDER, f"Generated_Image_{image_num}.jpg")
-                    download_image(img_url, filepath)
-                    send_telegram_photo(filepath, f"✅ Generated Image #{image_num} Download Complete")
+                    if download_image(img_url, filepath):
+                        send_telegram_photo(filepath, f"✅ Generated Image #{image_num}")
                 else:
-                    print(f"⚠️ [Worker {worker_id}] Image nahi mili Image {image_num} ke liye.")
                     err_shot = os.path.join(SAVE_FOLDER, f"ERROR_Image_{image_num}.png")
                     page.screenshot(path=err_shot)
-                    send_telegram_photo(err_shot, f"❌ Failed Image #{image_num}")
+                    send_telegram_photo(err_shot, f"❌ Image #{image_num} Generation Failed")
                     
             except Exception as e:
                 print(f"⚠️ Error for Image {image_num}: {e}")
             finally:
                 browser.close()
-                
-        time.sleep(2)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -149,7 +144,7 @@ if __name__ == "__main__":
     if len(machine_tasks) == 0:
         sys.exit(0)
         
-    mid_point = len(machine_tasks) // 2
+    mid_point = math.ceil(len(machine_tasks) / 2)
     worker_1_tasks = machine_tasks[:mid_point]
     worker_2_tasks = machine_tasks[mid_point:]
     
