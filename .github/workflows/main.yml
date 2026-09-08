@@ -1,4 +1,4 @@
-name: Dynamic Multi-IP Video Generator
+name: 5-Batch Multi-IP Video Generator with ZIP Output
 
 on:
   workflow_dispatch:
@@ -18,6 +18,10 @@ jobs:
           if [ ! -f prompt.txt ]; then
             echo "A cinematic shot of a futuristic city with flying cars at sunset" > prompt.txt
             echo "A cute panda drinking tea in a traditional Japanese garden" >> prompt.txt
+            echo "A golden retriever playing on a sunny beach" >> prompt.txt
+            echo "An astronaut walking on Mars with red mountains behind" >> prompt.txt
+            echo "A neon cyber city rain night view" >> prompt.txt
+            echo "A magical forest with glowing trees" >> prompt.txt
           fi
 
           python3 -c '
@@ -31,16 +35,15 @@ jobs:
                       prompts.append({"num": str(idx), "prompt": p})
 
           matrix_json = json.dumps(prompts)
-          print("Generated Matrix:", matrix_json)
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"matrix={matrix_json}\n")
           '
 
-  run-single-prompt-per-ip:
+  run-5-machines-batch:
     needs: prepare-prompts
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 1  # 1 machine khatam hone par hi dusri fresh IP wali machine khulegi
+      max-parallel: 5  # Ek saath exact 5 parallel machines chalengi
       matrix:
         include: ${{ fromJson(needs.prepare-prompts.outputs.matrix) }}
 
@@ -52,22 +55,53 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Dependencies Install
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-v1
+
+      - name: Dependencies Fast Install
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
           playwright install chromium --with-deps
 
-      - name: Run Automation (Fresh Machine IP)
+      - name: Run Automation
         env:
           PROMPT: ${{ matrix.prompt }}
           PROMPT_NUM: ${{ matrix.num }}
         run: python bot.py
 
-      - name: Upload Artifact on Failure
-        if: failure()
+      - name: Save Individual Video Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: error-screenshot-${{ matrix.num }}
-          path: "*.png"
+          name: video-${{ matrix.num }}
+          path: "generated_video_${{ matrix.num }}.mp4"
+
+  create-final-zip-package:
+    needs: run-5-machines-batch
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Videos
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_videos/
+
+      - name: Package Videos into One ZIP
+        run: |
+          mkdir -p final_zip_folder
+          find downloaded_videos/ -name "*.mp4" -exec cp {} final_zip_folder/ \;
+          cd final_zip_folder
+          zip -r ../ALL_GENERATED_VIDEOS.zip .
+          echo "ZIP created successfully."
+
+      - name: Upload Single ZIP Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALL_GENERATED_VIDEOS_BUNDLE
+          path: ALL_GENERATED_VIDEOS.zip
