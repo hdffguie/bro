@@ -35,8 +35,8 @@ def read_prompts():
             prompts.append(image_prompt)
     return prompts
 
-# Har 10 second mein live screenshot Telegram par bhejne wala function
-async def live_screenshot_monitor(page, machine_id, interval=10):
+# Live monitor interval increased to 30 seconds to prevent Telegram spam
+async def live_screenshot_monitor(page, machine_id, interval=30):
     shot_count = 1
     while True:
         try:
@@ -57,33 +57,38 @@ async def generate_bing_image(page, prompt, image_index):
         await page.goto("https://www.bing.com/images/create", wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(3)
 
-        # New UI Locators (Based on Screenshot)
+        # Locate Text Area
         textbox = page.get_by_placeholder("Describe the image you want to create")
-        if not await textbox.is_visible(timeout=10000):
-            # Fallback for old UI if redirected
-            textbox = page.locator("#sb_form_q").first
+        if not await textbox.is_visible(timeout=5000):
+            textbox = page.locator("#sb_form_q, textarea").first
 
         await textbox.fill(prompt)
         await asyncio.sleep(1)
 
-        # Click Generate button
+        # Locate Generate Button
         gen_btn = page.get_by_role("button", name="Generate", exact=True)
         if not await gen_btn.is_visible(timeout=5000):
-            gen_btn = page.locator("#create_btn_div").first
+            gen_btn = page.locator("#create_btn_div, button:has-text('Create')").first
 
         await gen_btn.click()
         print(f"⏳ Clicked Generate for Image #{image_index}. Waiting for image...")
 
-        # Wait for generated image
-        await page.wait_for_selector(".mimg, img[src*='https://tse']", timeout=120000)
-        await asyncio.sleep(4)
+        # Wait for generated image elements directly
+        img_selector = "img[src*='th?id='], .mimg, img[src*='bing.net'], img[src*='tse']"
+        await page.wait_for_selector(img_selector, timeout=120000)
+        await asyncio.sleep(5)
 
-        first_img = page.locator(".mimg, img[src*='https://tse']").first
-        await first_img.click()
-        await asyncio.sleep(3)
+        # Extract high quality direct image URL without clicking preview
+        images = page.locator(img_selector)
+        count = await images.count()
 
-        img_element = page.locator("img.mainImage, img[class*='mainImage']").first
-        img_url = await img_element.get_attribute("src")
+        img_url = None
+        for i in range(count):
+            src = await images.nth(i).get_attribute("src")
+            if src and ("th?id=" in src or "bing.net" in src or "tse" in src):
+                # Clean URL parameters for high quality
+                img_url = src.split("&w=")[0] if "&w=" in src else src
+                break
 
         if img_url:
             response = await page.request.get(img_url)
@@ -91,9 +96,11 @@ async def generate_bing_image(page, prompt, image_index):
             img_path = os.path.join(IMAGE_DIR, f"Generated_Image_{image_index}.jpg")
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
-            print(f"✅ Image #{image_index} Saved successfully.")
+            print(f"✅ Image #{image_index} Saved successfully!")
             send_telegram_photo(img_path, f"✅ Generated Image #{image_index}")
-            
+        else:
+            print(f"❌ Could not extract image URL for Image #{image_index}")
+
     except Exception as e:
         print(f"❌ Failed to generate Image #{image_index}: {e}")
 
@@ -125,13 +132,12 @@ async def main():
         )
         page = await context.new_page()
 
-        # Start 10-second Telegram screenshot monitor task in background
-        monitor_task = asyncio.create_task(live_screenshot_monitor(page, args.machine_id, interval=10))
+        # Start 30-second background monitor
+        monitor_task = asyncio.create_task(live_screenshot_monitor(page, args.machine_id, interval=30))
 
         for img_num, prompt in assigned_prompts:
             await generate_bing_image(page, prompt, img_num)
 
-        # Stop background monitor after completion
         monitor_task.cancel()
         await browser.close()
 
