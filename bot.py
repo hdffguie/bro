@@ -42,7 +42,7 @@ async def main():
         print("No PROMPT environment variable provided!")
         return
 
-    # Staggered delay (0s, 2s, 4s, 6s, 8s) taaki telegram par screenshot timeline maintain rahe
+    # Staggered delay taaki Telegram messages parallelly safe bheje ja sakein
     stagger_offset = (int(prompt_num) % 5) * 2
     await asyncio.sleep(stagger_offset)
 
@@ -78,9 +78,32 @@ async def main():
 
             await capture_and_send_status(page, prompt_num, "Prompt & 5s Duration set")
 
-            # 4. Generate Click
+            # 4. Generate Click with GPU High Demand Auto-Retry Loop
             generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
-            await generate_btn.click()
+            gpu_error_text = page.get_by_text("free GPUs are in high demand", exact=False)
+
+            max_retries = 20
+            retry_count = 0
+            generation_started = False
+
+            while retry_count < max_retries:
+                retry_count += 1
+                print(f"Attempt #{retry_count}: Clicking Generate Video...")
+                await generate_btn.click()
+                await asyncio.sleep(4)  # Check karne ke liye sleep
+
+                # Check agar red error popup aaya hai
+                if await gpu_error_text.is_visible():
+                    print(f"[GPU Busy Error] Attempt {retry_count}/{max_retries}. 5 second wait karke dobara click kar rahe hain...")
+                    await capture_and_send_status(page, prompt_num, f"⚠️ GPU Busy Error! Dobara Retry Click ({retry_count}/{max_retries})...")
+                    await asyncio.sleep(5)
+                else:
+                    print("Generation successfully start ho gayi!")
+                    generation_started = True
+                    break
+
+            if not generation_started:
+                raise Exception("Max retry limit reach ho gayi (GPU busy error persistent).")
 
             # 5. Wait Loop (Har 10 second mein screenshot Telegram par bhejega)
             see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
@@ -96,6 +119,11 @@ async def main():
 
                 current_time = time.time()
                 if current_time - last_screenshot_time >= 10:
+                    # Retry check during generation if error pops up again
+                    if await gpu_error_text.is_visible():
+                        print("Mid-process GPU error detected, re-clicking generate...")
+                        await generate_btn.click()
+
                     await capture_and_send_status(page, prompt_num, "Video process ho rahi hai...")
                     last_screenshot_time = current_time
 
