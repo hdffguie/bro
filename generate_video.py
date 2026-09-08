@@ -12,18 +12,16 @@ VIDEO_DIR = "generated_videos"
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
-def read_video_prompts():
-    if not os.path.exists("prompts.txt"):
-        return {}
-    with open("prompts.txt", "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    
-    video_prompts = {}
-    for idx, line in enumerate(lines, start=1):
-        if "|" in line:
-            v_prompt = line.split("|")[1].strip()
-            video_prompts[idx] = v_prompt
-    return video_prompts
+def send_telegram_photo(photo_path, caption=""):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    try:
+        if os.path.exists(photo_path):
+            with open(photo_path, "rb") as file:
+                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+    except Exception as e:
+        print(f"Telegram photo error: {e}")
 
 def send_telegram_video(video_path, caption=""):
     if not BOT_TOKEN or not CHAT_ID:
@@ -36,10 +34,41 @@ def send_telegram_video(video_path, caption=""):
     except Exception as e:
         print(f"Telegram upload error: {e}")
 
+def read_video_prompts():
+    if not os.path.exists("prompts.txt"):
+        return {}
+    with open("prompts.txt", "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    
+    video_prompts = {}
+    for idx, line in enumerate(lines, start=1):
+        if "|" in line:
+            v_prompt = line.split("|")[1].strip()
+            video_prompts[idx] = v_prompt
+        else:
+            video_prompts[idx] = line.strip()
+    return video_prompts
+
+# Video process ke dauran Telegram screenshot monitor
+async def live_screenshot_monitor(page, machine_id, interval=20):
+    shot_count = 1
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            shot_path = f"live_video_m{machine_id}.png"
+            await page.screenshot(path=shot_path)
+            send_telegram_photo(shot_path, f"🎬 Machine {machine_id} Video Live Status #{shot_count}")
+            shot_count += 1
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Live screenshot error: {e}")
+
 async def process_image_to_video(page, image_path, image_num, motion_prompt):
     print(f"\n🎬 Processing Video #{image_num}...")
 
-    await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="networkidle")
+    await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="domcontentloaded", timeout=60000)
+    await asyncio.sleep(3)
 
     # Cookie Accept
     try:
@@ -53,11 +82,28 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt):
     file_input = page.locator("input[type='file']").first
     await file_input.set_input_files(image_path)
     print(f"📸 Uploaded Image #{image_num}")
-    await asyncio.sleep(3)
+    await asyncio.sleep(4)
 
-    # 2. Fill Video & Voice Prompt
-    prompt_input = page.get_by_placeholder("Enter a prompt to generate a video...")
+    # 2. Fill Video & Voice Prompt with Multiple Fallback Locators
+    prompt_input = None
+    selectors = [
+        "textarea",
+        "input[placeholder*='prompt']",
+        "input[placeholder*='Describe']",
+        "input[type='text']"
+    ]
+    
+    for sel in selectors:
+        loc = page.locator(sel).first
+        if await loc.is_visible(timeout=3000):
+            prompt_input = loc
+            break
+    
+    if not prompt_input:
+        prompt_input = page.get_by_placeholder("Enter a prompt to generate a video...").first
+
     await prompt_input.fill(motion_prompt)
+    print(f"✍️ Motion Prompt Filled for Video #{image_num}")
 
     # 3. Set Duration 5 seconds
     try:
@@ -71,6 +117,9 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt):
 
     # 4. Click Generate with Auto Retry
     generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
+    if not await generate_btn.is_visible(timeout=3000):
+        generate_btn = page.locator("button:has-text('Generate')").first
+
     gpu_error = page.get_by_text("free GPUs are in high demand", exact=False)
 
     started = False
@@ -84,8 +133,15 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt):
             print(f"⚠️ GPU busy (Attempt {attempt}). Retrying...")
             await asyncio.sleep(8)
             if attempt % 4 == 0:
-                await page.reload(wait_until="networkidle")
+                await page.reload(wait_until="domcontentloaded")
                 await page.locator("input[type='file']").first.set_input_files(image_path)
+                await asyncio.sleep(2)
+                
+                for sel in selectors:
+                    loc = page.locator(sel).first
+                    if await loc.is_visible(timeout=2000):
+                        prompt_input = loc
+                        break
                 await prompt_input.fill(motion_prompt)
         else:
             started = True
@@ -95,7 +151,7 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt):
         print(f"❌ Failed to start Video #{image_num}")
         return
 
-    # 5. Download Video
+    # 5. Wait & Download Video
     see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
     video_element = page.locator("video:not([src*='_static'])").first
 
@@ -137,25 +193,34 @@ async def main():
 
     video_prompts = read_video_prompts()
     
-    # Find existing generated images
     if not os.path.exists(IMAGE_DIR):
         print("❌ Image directory not found!")
         return
 
     all_images = sorted([f for f in os.listdir(IMAGE_DIR) if f.startswith("Generated_Image_") and f.endswith(".jpg")])
     
-    # Machine distribution
+    if not all_images:
+        print("❌ No images found in bing_automated_images folder!")
+        return
+
     chunk_size = len(all_images) // total_machines + (1 if len(all_images) % total_machines != 0 else 0)
     start_idx = (machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, len(all_images))
     assigned_images = all_images[start_idx:end_idx]
 
-    print(f"🖥️ Machine {machine_id} generating {len(assigned_images)} videos.")
+    if not assigned_images:
+        print(f"⚠️ Machine {machine_id} has no assigned videos. Exiting.")
+        return
+
+    print(f"🖥️ Machine {machine_id} generating {len(assigned_images)} video task(s).")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(accept_downloads=True)
+        context = await browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720})
         page = await context.new_page()
+
+        # Start live Telegram screenshots for video generation stage
+        monitor_task = asyncio.create_task(live_screenshot_monitor(page, machine_id, interval=20))
 
         for img_name in assigned_images:
             img_num = int(img_name.replace("Generated_Image_", "").replace(".jpg", ""))
@@ -164,6 +229,7 @@ async def main():
             
             await process_image_to_video(page, img_path, img_num, motion_prompt)
 
+        monitor_task.cancel()
         await browser.close()
 
 if __name__ == "__main__":
