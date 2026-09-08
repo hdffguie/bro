@@ -1,48 +1,56 @@
 name: Automated Image and Video Generator Pipeline
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     
     strategy:
+      fail-fast: false
       matrix:
         machine_id: [1, 2, 3, 4, 5]
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: Install Dependencies
+    - name: Install Dependencies & Playwright
       run: |
         pip install -r requirements.txt
         playwright install chromium
+        playwright install-deps chromium
 
-    # Step 1: Bing Image Generation
+    # STAGE 1: Bing Image Generator (With Live 10s Telegram Screenshots)
     - name: Run Bing Image Generator
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
       run: python main.py --machine_id ${{ matrix.machine_id }} --total_machines 5
 
-    # Step 2: Upsampler Video Generation
+    # STAGE 2: Upsampler Image-to-Video Generator
     - name: Run Upsampler Video Generator
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: python generate_video.py ${{ matrix.machine_id }} 5
 
-    # Step 3: Save Output Artifacts
-    - name: Save Images
+    # STAGE 3: Save Output Artifacts
+    - name: Save Images Artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: Images_Machine_${{ matrix.machine_id }}
         path: bing_automated_images/
 
-    - name: Save Videos
+    - name: Save Videos Artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: Videos_Machine_${{ matrix.machine_id }}
