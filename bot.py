@@ -35,10 +35,14 @@ async def capture_and_send_status(page, prompt_num, step_description=""):
         print(f"Screenshot error: {e}")
 
 async def main():
-    prompt = os.getenv("PROMPT", "A cinematic shot of a futuristic city with flying cars at sunset")
+    prompt = os.getenv("PROMPT")
     prompt_num = os.getenv("PROMPT_NUM", "1")
 
-    # Staggered start delay (Machine 1: 0s, Machine 2: 2s, Machine 3: 4s, Machine 4: 6s, Machine 5: 8s)
+    if not prompt:
+        print("No PROMPT environment variable provided!")
+        return
+
+    # Staggered delay (0s, 2s, 4s, 6s, 8s) taaki telegram par screenshot timeline maintain rahe
     stagger_offset = (int(prompt_num) % 5) * 2
     await asyncio.sleep(stagger_offset)
 
@@ -91,7 +95,6 @@ async def main():
                 await asyncio.sleep(2)
 
                 current_time = time.time()
-                # Exactly Har 10 second mein screenshot send
                 if current_time - last_screenshot_time >= 10:
                     await capture_and_send_status(page, prompt_num, "Video process ho rahi hai...")
                     last_screenshot_time = current_time
