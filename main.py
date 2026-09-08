@@ -15,7 +15,7 @@ def send_telegram_photo(bot_token, chat_id, photo_path, message="Status Update")
 
 async def run_automation():
     # APNA NAYA TOKEN YAHAN USE KAREIN (Environment Variables se lena best practice hai)
-    BOT_TOKEN = "YOUR_NEW_REGENERATED_TOKEN" 
+    BOT_TOKEN = "8350328141:AAGjLVuJO6QvNb9v2NyoqbjevqNgR5WKJHk" 
     CHAT_ID = "8571870755"
 
     async with async_playwright() as p:
@@ -24,7 +24,7 @@ async def run_automation():
 
         try:
             print("Navigating to website...")
-            await page.goto("https://example.com") # Demo URL
+            await page.goto("https://upsampler.com/free-video-generator-no-signup") # Demo URL
 
             print("Filling prompt...")
             # Note: Aapko inspect element karke sahi selectors dhoondhne honge
