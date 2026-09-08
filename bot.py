@@ -91,7 +91,8 @@ async def main():
             await generate_btn.click()
             print("Video generation start ho chuki hai...")
 
-            # 6. Har 10 second mein screenshot lena aur video status check karna
+            # 6. Wait loop: 'See result' button click karna aur video verify karna
+            see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
             video_element = page.locator("video:not([src*='_static'])").first
             
             start_time = time.time()
@@ -101,15 +102,24 @@ async def main():
             while time.time() - start_time < max_wait_seconds:
                 await asyncio.sleep(10)  # Har 10 second ka gap
                 
-                # Live Screenshot Telegram par bhejega
-                await capture_and_send_status(page, update_count, "Video generate ho rahi hai...")
-                update_count += 1
+                # Check agar 'See result' button dikh gaya ho
+                if await see_result_btn.is_visible():
+                    print("'See result' button mil gaya! Click kar rahe hain...")
+                    await capture_and_send_status(page, update_count, "Result Ready! 'See result' button click kar rahe hain...")
+                    update_count += 1
+                    await see_result_btn.click()
+                    await asyncio.sleep(3)  # Video display hone ke liye 3 sec wait
 
-                # Check karna ki output video load hui ya nahi
+                # Check if final video is visible
                 if await video_element.count() > 0 and await video_element.is_visible():
                     print("Video generate ho gayi hai!")
+                    await capture_and_send_status(page, update_count, "Video screen par show ho gayi hai!")
+                    update_count += 1
                     video_ready = True
                     break
+                else:
+                    await capture_and_send_status(page, update_count, "Video process ho rahi hai...")
+                    update_count += 1
 
             if not video_ready:
                 raise Exception("Video generation time limit exceed ho gayi (5 mins).")
