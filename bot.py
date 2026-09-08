@@ -1,152 +1,153 @@
+import asyncio
 import os
+import sys
 import time
-import random
 import requests
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 BOT_TOKEN = "8350328141:AAGjLVuJO6QvNb9v2NyoqbjevqNgR5WKJHk"
 CHAT_ID = "8571870755"
 
 def send_telegram_photo(image_path, caption=""):
+    """Telegram pe screenshot bhejne ka function"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     try:
         if os.path.exists(image_path):
             with open(image_path, "rb") as file:
-                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+                res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+                print(f"[Telegram Photo Status]: {res.status_code}")
     except Exception as e:
-        print(f"[Telegram Photo Exception]: {e}")
+        print(f"[Telegram Exception]: {e}")
 
 def send_telegram_video(video_path, caption=""):
+    """Telegram pe video bhejne ka function"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     try:
         if os.path.exists(video_path):
             with open(video_path, "rb") as file:
-                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"video": file}, timeout=120)
+                res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"video": file}, timeout=120)
+                print(f"[Telegram Video Status]: {res.status_code}")
     except Exception as e:
-        print(f"[Telegram Video Exception]: {e}")
+        print(f"[Telegram Exception]: {e}")
 
-def capture_and_send_status(page, prompt_num, step_description=""):
-    path = f"live_status_{prompt_num}.png"
+async def capture_and_send_status(page, prompt_num, step_description=""):
+    """Screenshot lekar Telegram pe bhejne ka function"""
+    path = "live_status.png"
     try:
-        page.screenshot(path=path)
+        await page.screenshot(path=path)
         caption = f"📸 Machine #{prompt_num} | Status: {step_description}"
         send_telegram_photo(path, caption)
     except Exception as e:
-        print(f"Screenshot error: {e}")
+        print(f"Screenshot capture failed: {e}")
 
-def human_type(element, text):
-    """Anti-bot human typing simulation"""
-    element.click()
-    time.sleep(random.uniform(0.6, 1.2))
-    for char in text:
-        element.type(char, delay=random.randint(90, 240))
-    time.sleep(random.uniform(0.8, 1.5))
-
-def run_automation():
-    prompt_text = os.getenv("PROMPT", "A cinematic shot of a majestic lion walking through a futuristic glowing city at night")
+async def main():
+    # GitHub Runner environment variable se prompt lega
+    prompt = os.getenv("PROMPT", "A cinematic shot of a futuristic city with flying cars at sunset")
     prompt_num = os.getenv("PROMPT_NUM", "1")
-    url = "https://pixelbin.io/ai-tools/video-generator"
 
-    # Multi-machine staggered launch
-    stagger_offset = (int(prompt_num) - 1) * 10
-    if stagger_offset > 0:
-        print(f"Machine #{prompt_num} waiting {stagger_offset} seconds...")
-        time.sleep(stagger_offset)
+    print(f"\n==========================================")
+    print(f"Machine Started for Prompt #{prompt_num}: {prompt}")
+    print(f"==========================================")
 
-    with sync_playwright() as p:
-        # Headless mode for GitHub Actions compatibility
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-infobars"
-            ]
-        )
-        
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 720},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            locale="en-US"
-        )
-        
-        page = context.new_page()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(accept_downloads=True)
+        page = await context.new_page()
 
         try:
-            print(f"Machine #{prompt_num} - Opening URL...")
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            time.sleep(10)
-            capture_and_send_status(page, prompt_num, "Website loaded successfully")
+            print("Website khol rahe hain...")
+            await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="networkidle")
+            await capture_and_send_status(page, prompt_num, "Website khul gayi hai")
 
-            # 1. Prompt Input with Human Typing
-            print(f"Machine #{prompt_num} - Entering prompt...")
-            prompt_box = page.locator("textarea[placeholder*='Describe your video']")
-            prompt_box.wait_for(state="visible", timeout=15000)
-            
-            prompt_box.hover()
-            human_type(prompt_box, prompt_text)
-            capture_and_send_status(page, prompt_num, "Prompt entered via human typing")
-
-            # 2. Click Generate Button
-            print(f"Machine #{prompt_num} - Clicking Generate...")
-            generate_btn = page.get_by_role("button", name="Generate", exact=True).first
-            generate_btn.wait_for(state="visible", timeout=10000)
-            
-            generate_btn.hover()
-            time.sleep(random.uniform(1.0, 2.0))
-            generate_btn.click()
-            capture_and_send_status(page, prompt_num, "Generate button clicked")
-
-            # 3. Wait for Video Generation
-            print(f"Machine #{prompt_num} - Waiting for video generation...")
-            generated_video = page.locator("video:not([src*='dummy-cloudname'])").first
-            
+            # 1. Cookie Popup Accept
             try:
-                generated_video.wait_for(state="visible", timeout=180000)
+                accept_btn = page.get_by_role("button", name="Accept")
+                await accept_btn.wait_for(timeout=5000)
+                await accept_btn.click()
+                print("Cookie popup accept ho gaya.")
             except Exception:
-                generated_video = page.locator("video[src^='blob:'], video[src*='pixelbin']").last
-                generated_video.wait_for(state="visible", timeout=10000)
+                print("Cookie popup nahi mila ya pehle se closed hai.")
 
-            capture_and_send_status(page, prompt_num, "Video generation completed")
-            time.sleep(3)
+            # 2. Scroll Down
+            await page.evaluate("window.scrollBy(0, 300)")
+            await asyncio.sleep(1)
 
-            # 4. Save & Download Video
-            video_filename = f"generated_video_{prompt_num}.mp4"
-            download_btn = page.locator("button:has-text('Download'), a:has-text('Download')").first
-            
-            if download_btn.is_visible():
-                with page.expect_download(timeout=15000) as download_info:
-                    download_btn.click()
-                download = download_info.value
-                download.save_as(video_filename)
-                print(f"SUCCESS: Saved via Download button -> {video_filename}")
-            else:
-                video_src = generated_video.get_attribute("src")
-                if video_src:
-                    response = page.request.get(video_src)
-                    with open(video_filename, "wb") as f:
-                        f.write(response.body())
-                    print(f"SUCCESS: Saved via URL -> {video_filename}")
+            # 3. Prompt Add Karna
+            prompt_input = page.get_by_placeholder("Enter a prompt to generate a video...")
+            await prompt_input.fill(prompt)
+            print(f"Prompt input add ho gaya.")
+
+            # 4. Duration 5 Seconds Set Karna
+            duration_dropdown = page.get_by_text("3 seconds")
+            if await duration_dropdown.is_visible():
+                await duration_dropdown.click()
+                await asyncio.sleep(1)
+                await page.get_by_text("5 seconds", exact=True).click()
+                print("Duration 5 seconds set ho gayi.")
+
+            await capture_and_send_status(page, prompt_num, f"Prompt '{prompt[:25]}...' aur 5s duration set hai")
+
+            # 5. Generate Click
+            generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
+            await generate_btn.click()
+            print("Video generation start ho chuki hai...")
+
+            # 6. Wait Loop & 'See result' Handling
+            see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
+            video_element = page.locator("video:not([src*='_static'])").first
+
+            start_time = time.time()
+            max_wait_seconds = 300
+            video_ready = False
+
+            while time.time() - start_time < max_wait_seconds:
+                await asyncio.sleep(10)
+
+                if await see_result_btn.is_visible():
+                    print("'See result' button click kar rahe hain...")
+                    await capture_and_send_status(page, prompt_num, "Result Ready! 'See result' click kar rahe hain...")
+                    await see_result_btn.click()
+                    await asyncio.sleep(3)
+
+                if await video_element.count() > 0 and await video_element.is_visible():
+                    print("Video ready ho gayi!")
+                    await capture_and_send_status(page, prompt_num, "Video screen par ready ho gayi hai!")
+                    video_ready = True
+                    break
                 else:
-                    raise Exception("Video URL not found.")
+                    await capture_and_send_status(page, prompt_num, "Video process ho rahi hai...")
 
-            # Send Video to Telegram
-            send_telegram_video(video_filename, f"✅ Video #{prompt_num} Ready!\n📌 Prompt: {prompt_text}")
+            if not video_ready:
+                raise Exception("Video generation 5 minute mein complete nahi hui.")
+
+            # 7. Video Download & Telegram Upload
+            video_filename = f"generated_video_{prompt_num}.mp4"
+            video_src = await video_element.get_attribute("src")
+
+            if video_src:
+                download_btn = page.locator("a:has-text('Download'), button:has-text('Download')").first
+                if await download_btn.is_visible():
+                    async with page.expect_download() as download_info:
+                        await download_btn.click()
+                    download = await download_info.value
+                    await download.save_as(video_filename)
+                else:
+                    video_data = requests.get(video_src).content
+                    with open(video_filename, "wb") as f:
+                        f.write(video_data)
+
+                print(f"Video download ho gayi!")
+                send_telegram_video(video_filename, f"✅ Video #{prompt_num} Completed!\n\n📌 Prompt: {prompt}")
 
         except Exception as e:
-            print(f"Error Machine #{prompt_num}: {e}")
+            print(f"Error Machine #{prompt_num} par: {e}")
             error_img = f"error_{prompt_num}.png"
-            try:
-                page.screenshot(path=error_img)
-                send_telegram_photo(error_img, f"❌ Machine #{prompt_num} Error: {e}")
-            except Exception:
-                pass
+            await page.screenshot(path=error_img)
+            send_telegram_photo(error_img, f"❌ Error on Prompt #{prompt_num}: {e}")
             raise e
 
         finally:
-            browser.close()
+            await browser.close()
 
 if __name__ == "__main__":
-    run_automation()
+    asyncio.run(main())
