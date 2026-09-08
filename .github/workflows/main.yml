@@ -12,18 +12,9 @@ jobs:
       - name: Code Checkout
         uses: actions/checkout@v4
 
-      - name: Read prompt.txt and Create Matrix
+      - name: Read prompt.txt directly
         id: set-matrix
         run: |
-          if [ ! -f prompt.txt ]; then
-            echo "A cinematic shot of a futuristic city with flying cars at sunset" > prompt.txt
-            echo "A cute panda drinking tea in a traditional Japanese garden" >> prompt.txt
-            echo "A golden retriever playing on a sunny beach" >> prompt.txt
-            echo "An astronaut walking on Mars with red mountains behind" >> prompt.txt
-            echo "A neon cyber city rain night view" >> prompt.txt
-            echo "A magical forest with glowing trees" >> prompt.txt
-          fi
-
           python3 -c '
           import json, os
 
@@ -35,6 +26,7 @@ jobs:
                       prompts.append({"num": str(idx), "prompt": p})
 
           matrix_json = json.dumps(prompts)
+          print("Loaded Prompts:", matrix_json)
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"matrix={matrix_json}\n")
           '
@@ -43,7 +35,7 @@ jobs:
     needs: prepare-prompts
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 5  # Ek saath exact 5 parallel machines chalengi
+      max-parallel: 5  # Exactly 5 machines at a time
       matrix:
         include: ${{ fromJson(needs.prepare-prompts.outputs.matrix) }}
 
