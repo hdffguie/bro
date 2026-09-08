@@ -23,7 +23,7 @@ jobs:
         playwright install chromium
 
     - name: Run Playwright script
-      run: python your_script_name.py # Apne python file ka naam likhein
+      run: python main.py # Apne python file ka naam likhein
 
     # Agar upar wala step fail hota hai (error aati hai), toh yeh step screenshot ko save kar lega
     - name: Upload Error Screenshot to GitHub Artifacts
