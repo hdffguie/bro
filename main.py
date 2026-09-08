@@ -1,61 +1,67 @@
-from playwright.sync_api import sync_playwright
-import sys
+import asyncio
+import requests
+from playwright.async_api import async_playwright
 
-def main():
-    # Playwright start karna
-    with sync_playwright() as p:
-        # GitHub actions mein headless True rakhna zaroori hai
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+# Telegram function (Use for alerts, but avoid sending every 5 seconds to avoid API Rate Limits)
+def send_telegram_photo(bot_token, chat_id, photo_path, message="Status Update"):
+    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    try:
+        with open(photo_path, 'rb') as photo:
+            payload = {'chat_id': chat_id, 'caption': message}
+            files = {'photo': photo}
+            requests.post(url, data=payload, files=files)
+    except Exception as e:
+        print(f"Failed to send to Telegram: {e}")
 
-        # Video banne mein time lagta hai, isliye timeout 5 minutes (300,000 ms) kar diya hai
-        page.set_default_timeout(300000)
+async def run_automation():
+    # APNA NAYA TOKEN YAHAN USE KAREIN (Environment Variables se lena best practice hai)
+    BOT_TOKEN = "YOUR_NEW_REGENERATED_TOKEN" 
+    CHAT_ID = "8571870755"
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True) # GitHub Actions par headless hi chalega
+        page = await browser.new_page()
 
         try:
-            print("Website open kar rahe hain...")
-            page.goto('https://upsampler.com/free-video-generator-no-signup')
+            print("Navigating to website...")
+            await page.goto("https://example.com") # Demo URL
 
-            # 1. Prompt likhna
-            print("Prompt enter kar rahe hain...")
-            page.fill('textarea[placeholder*="Enter a prompt"]', 'A cinematic drone shot of a futuristic city at sunset, 4k resolution')
+            print("Filling prompt...")
+            # Note: Aapko inspect element karke sahi selectors dhoondhne honge
+            await page.fill("textarea#prompt-input-id", "A beautiful sunset over the mountains")
 
-            # 2. Duration 3s se 5s karna
-            print("Duration change kar rahe hain...")
-            page.click('text="3 seconds"') 
-            page.wait_for_timeout(500) # Dropdown open hone ke liye thoda wait
-            page.click('text="5 seconds"')
+            print("Selecting duration...")
+            # Dropdown select karne ka tareeqa
+            await page.select_option("select#duration-selector", value="5") 
 
-            # 3. Generate Video par click karna
-            print("Generate Video par click kar rahe hain...")
-            page.click('button:has-text("Generate Video")')
+            print("Clicking Generate...")
+            await page.click("button.generate-btn")
 
-            # 4. Video generate hone ka wait karna
-            print("Video generate hone ka wait kar rahe hain (Isme time lag sakta hai)...")
-            # Yahan hum assume kar rahe hain ki banne ke baad Download ka button aayega
-            page.wait_for_selector('button:has-text("Download")')
+            # Video generate hone ka wait karna (isme time lag sakta hai)
+            print("Waiting for generation to complete...")
+            # Example: Wait for download button to appear
+            await page.wait_for_selector("a.download-btn", timeout=60000) # Wait up to 60 seconds
 
-            # 5. Video download karna
-            print("Video download kar rahe hain...")
-            # Python Playwright mein download handle karne ka tarika:
-            with page.expect_download() as download_info:
-                page.click('button:has-text("Download")')
-            
-            download = download_info.value
-            download.save_as('./generated_video.mp4')
-            print("Video successfully download ho gayi!")
+            # Download handle karna
+            async with page.expect_download() as download_info:
+                await page.click("a.download-btn")
+            download = await download_info.value
+            await download.save_as(f"generated_video.mp4")
+            print("Download successful!")
 
         except Exception as e:
-            print(f"Koi error aayi hai: {e}")
-            
+            print(f"An error occurred: {e}")
             # Error aane par screenshot lena
-            page.screenshot(path="error_screenshot.png", full_page=True)
-            print("Error ka screenshot 'error_screenshot.png' ke naam se save ho gaya hai.")
+            error_screenshot = "error_screenshot.png"
+            await page.screenshot(path=error_screenshot)
             
-            # GitHub Action ko fail karne ke liye error code ke sath exit karna
-            sys.exit(1)
+            # Telegram par error screenshot bhejna
+            send_telegram_photo(BOT_TOKEN, CHAT_ID, error_screenshot, "Error Occurred in Script!")
             
+            # GitHub Actions ko batane ke liye ki script fail hua hai, error raise karein
+            raise e 
         finally:
-            browser.close()
+            await browser.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_automation())
