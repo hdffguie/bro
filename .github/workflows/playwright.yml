@@ -1,0 +1,45 @@
+name: Generate Video Automation (Python)
+
+on:
+  workflow_dispatch: # Manually run karne ke liye
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Python setup karna
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # Dependencies install karna (Playwright)
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install chromium --with-deps
+
+      # Python script run karna
+      - name: Run Playwright Script
+        run: python main.py
+
+      # Agar PASS ho jaye toh video download ke liye save karo
+      - name: Upload Video
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Generated-Video
+          path: generated_video.mp4
+
+      # Agar FAIL ho jaye toh Screenshot save karo
+      - name: Upload Error Screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Error-Screenshot
+          path: error_screenshot.png
