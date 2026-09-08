@@ -8,19 +8,29 @@ import math
 import sys
 import re
 
-# Folder setup
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+CHAT_ID = os.getenv("CHAT_ID", "")
 SAVE_FOLDER = "bing_automated_images"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 PROMPT_FILE = "prompts.txt"
+
+def send_telegram_photo(photo_path, caption=""):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    try:
+        if os.path.exists(photo_path):
+            with open(photo_path, "rb") as file:
+                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+    except Exception as e:
+        print(f"Telegram photo error: {e}")
 
 def download_image(url, filename):
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
-        # FIX 1: URL parameters ko break nahi kar rahe taaki Bing image server load ho sake
         print(f"📥 Downloading: {url[:60]}...") 
-        
         response = requests.get(url, headers=headers, stream=True, timeout=30)
         if response.status_code == 200:
             with open(filename, 'wb') as f:
@@ -32,9 +42,6 @@ def download_image(url, filename):
     except Exception as e:
         print(f"❌ Error during download: {e}")
 
-# ==========================================
-# WORKER FUNCTION
-# ==========================================
 def run_browser_worker(worker_id, tasks_list):
     print(f"🤖 Worker {worker_id} started! Processing {len(tasks_list)} images...")
     
@@ -49,11 +56,10 @@ def run_browser_worker(worker_id, tasks_list):
             
             try:
                 page.goto("https://www.bing.com/images/create", timeout=60000)
-                time.sleep(4) 
+                time.sleep(3) 
                 
-                print(f"[Worker {worker_id}] Typing for Image {image_num} | Prompt: {prompt_text[:60]}...")
+                print(f"[Worker {worker_id}] Typing for Image {image_num} | Prompt: {prompt_text[:50]}...")
                 
-                # Input Box Locator
                 search_box = page.get_by_placeholder("Describe the image you want to create")
                 if not search_box.is_visible():
                     search_box = page.locator("textarea[name='q'], #sb_form_q, textarea").first
@@ -62,18 +68,14 @@ def run_browser_worker(worker_id, tasks_list):
                 search_box.fill(prompt_text)
                 time.sleep(1)
                 
-                # Generate Button Locator
                 generate_btn = page.locator("button:has-text('Generate'), button:has-text('Create'), #create_btn_div, #create_btn_c").first
                 generate_btn.click()
                 
                 print(f"[Worker {worker_id}] Waiting max 90s for Image {image_num}...")
-                
                 img_url = None
                 
-                # FIX 2: Dynamic image detection logic (OIG, tse, th?id= sab accept karega)
                 for attempt in range(45):
                     time.sleep(2) 
-                    
                     all_images = page.evaluate("""() => {
                         const imgs = Array.from(document.querySelectorAll('img'));
                         return imgs.map(img => img.src).filter(src => src && (
@@ -85,47 +87,45 @@ def run_browser_worker(worker_id, tasks_list):
                     }""")
                     
                     for src in all_images:
-                        # Exclude icons / logos
                         if "logo" not in src.lower() and "icon" not in src.lower():
                             img_url = src
                             break
                     
                     if img_url:
-                        print(f"[Worker {worker_id}] 🎉 Image {image_num} found in {attempt * 2 + 2} seconds!")
+                        print(f"[Worker {worker_id}] 🎉 Image {image_num} ready on screen!")
+                        
+                        # Screenshot 5 seconds before download
+                        pre_shot = os.path.join(SAVE_FOLDER, f"pre_download_Image_{image_num}.png")
+                        page.screenshot(path=pre_shot)
+                        send_telegram_photo(pre_shot, f"📸 Image #{image_num} Generated! Downloading in 5 seconds...")
+                        
+                        time.sleep(5) # Wait 5 seconds
                         break 
                 
                 if img_url:
                     filepath = os.path.join(SAVE_FOLDER, f"Generated_Image_{image_num}.jpg")
                     download_image(img_url, filepath)
+                    send_telegram_photo(filepath, f"✅ Generated Image #{image_num} Download Complete")
                 else:
                     print(f"⚠️ [Worker {worker_id}] Image nahi mili Image {image_num} ke liye.")
-                    page.screenshot(path=os.path.join(SAVE_FOLDER, f"ERROR_Image_{image_num}.png"))
-                    with open(os.path.join(SAVE_FOLDER, "failed_images.txt"), "a") as f:
-                        f.write(f"Image {image_num} failed\n")
+                    err_shot = os.path.join(SAVE_FOLDER, f"ERROR_Image_{image_num}.png")
+                    page.screenshot(path=err_shot)
+                    send_telegram_photo(err_shot, f"❌ Failed Image #{image_num}")
                     
             except Exception as e:
                 print(f"⚠️ Error for Image {image_num}: {e}")
-                page.screenshot(path=os.path.join(SAVE_FOLDER, f"CRASH_Image_{image_num}.png"))
             finally:
                 browser.close()
                 
-        time.sleep(3)
+        time.sleep(2)
 
-# ==========================================
-# FILE READING & PARALLEL PROCESSING MATHS
-# ==========================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--machine_id", type=int, required=True, help="Machine Number (e.g. 1, 2, 3...)")
-    parser.add_argument("--total_machines", type=int, default=5, help="Total number of machines running")
+    parser.add_argument("--machine_id", type=int, required=True)
+    parser.add_argument("--total_machines", type=int, default=5)
     args = parser.parse_args()
     
-    machine_id = args.machine_id
-    total_machines = args.total_machines
-    print(f"🖥️ MACHINE {machine_id} STARTED (Out of {total_machines} machines)!")
-    
     if not os.path.exists(PROMPT_FILE):
-        print(f"❌ ERROR: {PROMPT_FILE} nahi mila!")
         sys.exit(1)
         
     all_prompts = []
@@ -133,45 +133,28 @@ if __name__ == "__main__":
         for line in f:
             line = line.strip()
             if line:
-                # FIX 3: Agar prompt me Pipe (|) hai, toh sirf pehle part ko Image prompt maano
                 if "|" in line:
                     line = line.split("|")[0].strip()
-                
                 clean_line = re.sub(r'^\d+[\.\-\)]?\s*', '', line)
                 all_prompts.append(clean_line)
         
     total_prompts = len(all_prompts)
-    print(f"📝 Total Prompts Found: {total_prompts}")
-    
-    if total_prompts == 0:
-        print("❌ ERROR: prompts.txt file khali hai!")
-        sys.exit(1)
-
     all_tasks = [(i + 1, all_prompts[i]) for i in range(total_prompts)]
     
-    chunk_size = math.ceil(total_prompts / total_machines)
-    start_idx = (machine_id - 1) * chunk_size
+    chunk_size = math.ceil(total_prompts / args.total_machines)
+    start_idx = (args.machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, total_prompts)
     
     machine_tasks = all_tasks[start_idx:end_idx]
-    
     if len(machine_tasks) == 0:
-        print(f"⚠️ Machine {machine_id} ke liye koi kaam nahi bacha. Exiting.")
         sys.exit(0)
         
-    print(f"⚙️ Machine {machine_id} processing from Image {machine_tasks[0][0]} to {machine_tasks[-1][0]} (Total {len(machine_tasks)} images)")
-    
     mid_point = len(machine_tasks) // 2
     worker_1_tasks = machine_tasks[:mid_point]
     worker_2_tasks = machine_tasks[mid_point:]
     
-    worker_1_id = (machine_id - 1) * 2 + 1
-    worker_2_id = (machine_id - 1) * 2 + 2
-    
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         if worker_1_tasks:
-            executor.submit(run_browser_worker, worker_1_id, worker_1_tasks)
+            executor.submit(run_browser_worker, (args.machine_id - 1) * 2 + 1, worker_1_tasks)
         if worker_2_tasks:
-            executor.submit(run_browser_worker, worker_2_id, worker_2_tasks)
-    
-    print(f"✅ MACHINE {machine_id} NE APNA KAAM KHATAM KAR LIYA!")
+            executor.submit(run_browser_worker, (args.machine_id - 1) * 2 + 2, worker_2_tasks)
