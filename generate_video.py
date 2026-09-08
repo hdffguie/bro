@@ -50,7 +50,7 @@ def read_video_prompts():
             video_prompts[idx] = line.strip()
     return video_prompts
 
-# Live screenshot monitor FIXED: Exact Har 8 second mein screenshot
+# Har 8 second par live screenshot monitor
 async def live_screenshot_monitor(page, machine_id, interval=8):
     shot_count = 1
     while True:
@@ -82,12 +82,26 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
     await file_input.set_input_files(image_path)
     await asyncio.sleep(3)
 
-    selectors = ["textarea", "input[placeholder*='prompt']", "input[placeholder*='Describe']", "input[type='text']"]
+    # Universal Prompt Locator (Works with both input & textarea)
+    prompt_filled = False
+    selectors = [
+        "input[placeholder*='prompt' i]",
+        "textarea[placeholder*='prompt' i]",
+        "input[placeholder*='Describe' i]",
+        "textarea[placeholder*='Describe' i]",
+        "textarea",
+        "input[type='text']"
+    ]
     for sel in selectors:
         loc = page.locator(sel).first
-        if await loc.is_visible(timeout=3000):
-            await loc.fill(motion_prompt)
-            break
+        if await loc.is_visible(timeout=2000):
+            try:
+                await loc.fill(motion_prompt)
+                prompt_filled = True
+                print(f"✍️ Filled prompt with selector: {sel}")
+                break
+            except Exception:
+                continue
 
     try:
         duration_dropdown = page.get_by_text("3 seconds")
@@ -148,7 +162,7 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
             break
 
     if video_ready:
-        # Video Download hone se 4 second pehle Telegram Screenshot
+        # Video download hone se 4 sec pehle final screenshot
         pre_video_shot = f"pre_video_m{machine_id}_v{image_num}.png"
         await page.screenshot(path=pre_video_shot)
         send_telegram_photo(pre_video_shot, f"📸 Video #{image_num} Ready! Downloading in 4 seconds...")
@@ -187,8 +201,8 @@ async def main():
         print("❌ No images found in bing_automated_images folder!")
         return
 
-    # Machine Task Split Calculation Fix
-    chunk_size = (len(all_images) + total_machines - 1) // total_machines
+    # Machine Task Division Formula Fix
+    chunk_size = math.ceil(len(all_images) / total_machines)
     start_idx = (machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, len(all_images))
     assigned_images = all_images[start_idx:end_idx]
@@ -204,7 +218,7 @@ async def main():
         context = await browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720})
         page = await context.new_page()
 
-        # Monitor Interval: 8 Seconds
+        # Monitor Every 8 Seconds
         monitor_task = asyncio.create_task(live_screenshot_monitor(page, machine_id, interval=8))
 
         for img_name in assigned_images:
