@@ -1,0 +1,30 @@
+name: LTX 2.5 Text To Video Generator
+
+on:
+  workflow_dispatch: # Isse 'Run workflow' ka button dikhega
+
+jobs:
+  run_text_to_video:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download Repository Code
+      uses: actions/checkout@v4
+
+    - name: Setup Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Gradio API Client
+      run: pip install gradio_client
+
+    - name: Execute Text To Video Script
+      run: python text_to_video.py
+
+    - name: Upload Generated Video
+      if: success() # Video successfully banne par hi download link generate karega
+      uses: actions/upload-artifact@v4
+      with:
+        name: Text-AI-Video
+        path: output_video.mp4
