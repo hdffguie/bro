@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import requests
 from playwright.async_api import async_playwright
 
@@ -7,54 +8,54 @@ BOT_TOKEN = "8350328141:AAGjLVuJO6QvNb9v2NyoqbjevqNgR5WKJHk"
 CHAT_ID = "8571870755"
 
 def send_telegram_photo(image_path, caption=""):
-    """Telegram pe screenshot bhejne ka function"""
+    """Telegram pe screenshot bhejne ka function with detailed logging"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     try:
         if os.path.exists(image_path):
             with open(image_path, "rb") as file:
-                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, timeout=10)
+                res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+                print(f"[Telegram Photo Status]: {res.status_code} | Response: {res.text}")
+        else:
+            print(f"[Telegram Error]: File not found at {image_path}")
     except Exception as e:
-        print(f"Telegram photo error: {e}")
+        print(f"[Telegram Exception]: {e}")
 
 def send_telegram_video(video_path, caption=""):
-    """Telegram pe generated video bhejne ka function"""
+    """Telegram pe video bhejne ka function with detailed logging"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     try:
         if os.path.exists(video_path):
             with open(video_path, "rb") as file:
-                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, timeout=60)
+                res = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"video": file}, timeout=120)
+                print(f"[Telegram Video Status]: {res.status_code} | Response: {res.text}")
+        else:
+            print(f"[Telegram Error]: Video file not found at {video_path}")
     except Exception as e:
-        print(f"Telegram video error: {e}")
+        print(f"[Telegram Exception]: {e}")
 
-async def screenshot_loop(page, stop_event):
-    """Har 5 second mein live status screenshot Telegram par bhejega"""
-    count = 1
-    while not stop_event.is_set():
-        await asyncio.sleep(5)
-        if stop_event.is_set():
-            break
-        path = "live_status.png"
-        try:
-            await page.screenshot(path=path)
-            send_telegram_photo(path, f"Live Status Update #{count}")
-            count += 1
-        except Exception as e:
-            print(f"Screenshot capture error: {e}")
+async def capture_and_send_status(page, count, step_description=""):
+    """Screenshot lekar Telegram pe bhejne ka function"""
+    path = "live_status.png"
+    try:
+        await page.screenshot(path=path)
+        caption = f"📸 Update #{count}: {step_description}" if step_description else f"📸 Live Status Update #{count}"
+        send_telegram_photo(path, caption)
+    except Exception as e:
+        print(f"Screenshot capture failed: {e}")
 
 async def main():
-    stop_event = asyncio.Event()
-    
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
-        # Background mein har 5 sec screenshot task shuru karo
-        screenshot_task = asyncio.create_task(screenshot_loop(page, stop_event))
+        update_count = 1
 
         try:
             print("Website khol rahe hain...")
             await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="networkidle")
+            await capture_and_send_status(page, update_count, "Website khul gayi hai")
+            update_count += 1
 
             # 1. Cookie Popup Accept karna
             try:
@@ -82,17 +83,38 @@ async def main():
                 await page.get_by_text("5 seconds", exact=True).click()
                 print("Duration 5 seconds set ho gayi.")
 
+            await capture_and_send_status(page, update_count, "Prompt aur Duration (5s) set ho chuka hai")
+            update_count += 1
+
             # 5. Generate Video button click karna
             generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
             await generate_btn.click()
             print("Video generation start ho chuki hai...")
 
-            # 6. Generated Video ready hone ka wait karna
-            # Dynamic filter jo default static videos ko ignore karta hai
+            # 6. Har 10 second mein screenshot lena aur video status check karna
             video_element = page.locator("video:not([src*='_static'])").first
-            await video_element.wait_for(state="visible", timeout=300000)
+            
+            start_time = time.time()
+            max_wait_seconds = 300  # Maximum 5 mins wait
+            video_ready = False
 
-            # 7. Video download karna
+            while time.time() - start_time < max_wait_seconds:
+                await asyncio.sleep(10)  # Har 10 second ka gap
+                
+                # Live Screenshot Telegram par bhejega
+                await capture_and_send_status(page, update_count, "Video generate ho rahi hai...")
+                update_count += 1
+
+                # Check karna ki output video load hui ya nahi
+                if await video_element.count() > 0 and await video_element.is_visible():
+                    print("Video generate ho gayi hai!")
+                    video_ready = True
+                    break
+
+            if not video_ready:
+                raise Exception("Video generation time limit exceed ho gayi (5 mins).")
+
+            # 7. Video download karna aur Telegram par bhejna
             video_src = await video_element.get_attribute("src")
             if video_src:
                 download_btn = page.locator("a:has-text('Download'), button:has-text('Download')").first
@@ -117,9 +139,6 @@ async def main():
             raise e
 
         finally:
-            # Screenshot loop band karna
-            stop_event.set()
-            await screenshot_task
             await browser.close()
 
 if __name__ == "__main__":
