@@ -72,7 +72,7 @@ async def main():
 
             # 3. Prompt likhna
             prompt_input = page.get_by_placeholder("Enter a prompt to generate a video...")
-            await prompt_input.fill("A cinematic shot of a futuristic city with flying cars at sunset")
+            await prompt_input.fill(" A high-quality photorealistic video of Lord Hanuman as a cheerful vlogger. He is holding a modern vlogging camera on a selfie stick, smiling warmly directly into the lens. Divine glow, athletic build, wearing golden ornaments and a saffron stole. The video includes bold, clean floating subtitle text on the screen that reads: "Hey guys, welcome to my vlog! Aap sabhi badhiya ho na?" Ultra-detailed, 4k resolution, natural lighting, dynamic vlog angle.")
             print("Prompt add kar diya gaya hai.")
 
             # 4. Duration ko 3 seconds se 5 seconds karna
