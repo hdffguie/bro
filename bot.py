@@ -12,7 +12,7 @@ def send_telegram_photo(image_path, caption=""):
     try:
         if os.path.exists(image_path):
             with open(image_path, "rb") as file:
-                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=10)
+                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, timeout=10)
     except Exception as e:
         print(f"Telegram error: {e}")
 
@@ -72,8 +72,8 @@ async def main():
                 await page.get_by_text("5 seconds", exact=True).click()
                 print("Duration 5 seconds set ho gayi.")
 
-            # 5. Generate Video button par click karna
-            generate_btn = page.get_by_role("button", name="Generate Video")
+            # 5. Generate Video button par click karna (FIX APPLIED HERE)
+            generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
             await generate_btn.click()
             print("Video generation start ho chuki hai...")
 
