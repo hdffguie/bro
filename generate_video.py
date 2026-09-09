@@ -12,6 +12,8 @@ IMAGE_DIR = "bing_automated_images"
 VIDEO_DIR = "generated_videos"
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
+with open(os.path.join(VIDEO_DIR, ".keep"), "w") as f:
+    f.write("")
 
 def send_telegram_photo(photo_path, caption=""):
     if not BOT_TOKEN or not CHAT_ID:
@@ -49,7 +51,6 @@ def read_video_prompts():
             video_prompts[idx] = line.strip()
     return video_prompts
 
-# Har 8 second par live screenshot monitor
 async def live_screenshot_monitor(page, machine_id, interval=8):
     shot_count = 1
     while True:
@@ -57,134 +58,16 @@ async def live_screenshot_monitor(page, machine_id, interval=8):
             await asyncio.sleep(interval)
             shot_path = f"live_video_m{machine_id}.png"
             await page.screenshot(path=shot_path)
-            send_telegram_photo(shot_path, f"🎬 Machine {machine_id} Live Status #{shot_count} (Every 8s)")
+            send_telegram_photo(shot_path, f"🎬 Machine {machine_id} Live Status #{shot_count} (New IP)")
             shot_count += 1
         except asyncio.CancelledError:
             break
         except Exception as e:
             print(f"Live screenshot error: {e}")
 
-async def process_image_to_video(page, image_path, image_num, motion_prompt, machine_id):
-    print(f"\n🎬 Machine {machine_id} Processing Video #{image_num}...")
-
-    await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="domcontentloaded", timeout=60000)
-    await asyncio.sleep(3)
-
-    try:
-        accept_btn = page.get_by_role("button", name="Accept")
-        if await accept_btn.is_visible(timeout=3000):
-            await accept_btn.click()
-    except Exception:
-        pass
-
-    file_input = page.locator("input[type='file']").first
-    await file_input.set_input_files(image_path)
-    await asyncio.sleep(3)
-
-    selectors = [
-        "input[placeholder*='prompt' i]",
-        "textarea[placeholder*='prompt' i]",
-        "input[placeholder*='Describe' i]",
-        "textarea[placeholder*='Describe' i]",
-        "textarea",
-        "input[type='text']"
-    ]
-    for sel in selectors:
-        loc = page.locator(sel).first
-        if await loc.is_visible(timeout=2000):
-            try:
-                await loc.fill(motion_prompt)
-                print(f"✍️ Filled prompt with selector: {sel}")
-                break
-            except Exception:
-                continue
-
-    try:
-        duration_dropdown = page.get_by_text("3 seconds")
-        if await duration_dropdown.is_visible(timeout=2000):
-            await duration_dropdown.click()
-            await asyncio.sleep(1)
-            await page.get_by_text("5 seconds", exact=True).click()
-    except Exception:
-        pass
-
-    generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
-    if not await generate_btn.is_visible(timeout=3000):
-        generate_btn = page.locator("button:has-text('Generate')").first
-
-    gpu_error = page.get_by_text("free GPUs are in high demand", exact=False)
-
-    started = False
-    for attempt in range(1, 15):
-        if await generate_btn.is_visible():
-            await generate_btn.click()
-
-        await asyncio.sleep(5)
-
-        if await gpu_error.is_visible():
-            print(f"⚠️ GPU busy (Machine {machine_id}). Retrying...")
-            await asyncio.sleep(6)
-            if attempt % 3 == 0:
-                await page.reload(wait_until="domcontentloaded")
-                await page.locator("input[type='file']").first.set_input_files(image_path)
-                await asyncio.sleep(2)
-                for sel in selectors:
-                    loc = page.locator(sel).first
-                    if await loc.is_visible(timeout=2000):
-                        await loc.fill(motion_prompt)
-                        break
-        else:
-            started = True
-            break
-
-    if not started:
-        print(f"❌ Failed to start Video #{image_num}")
-        return
-
-    see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
-    video_element = page.locator("video:not([src*='_static'])").first
-
-    start_time = time.time()
-    video_ready = False
-
-    while time.time() - start_time < 360:
-        await asyncio.sleep(4)
-        if await see_result_btn.is_visible():
-            await see_result_btn.click()
-            await asyncio.sleep(2)
-
-        if await video_element.count() > 0 and await video_element.is_visible():
-            video_ready = True
-            break
-
-    if video_ready:
-        # Video download hone se exact 4 second pehle preview screenshot
-        pre_video_shot = f"pre_video_m{machine_id}_v{image_num}.png"
-        await page.screenshot(path=pre_video_shot)
-        send_telegram_photo(pre_video_shot, f"📸 Video #{image_num} Ready! Downloading in 4 seconds...")
-        await asyncio.sleep(4)
-
-        video_filename = os.path.join(VIDEO_DIR, f"Video_{image_num}.mp4")
-        video_src = await video_element.get_attribute("src")
-
-        if video_src:
-            download_btn = page.locator("a:has-text('Download'), button:has-text('Download')").first
-            if await download_btn.is_visible():
-                async with page.expect_download() as download_info:
-                    await download_btn.click()
-                download = await download_info.value
-                await download.save_as(video_filename)
-            else:
-                v_data = requests.get(video_src).content
-                with open(video_filename, "wb") as f:
-                    f.write(v_data)
-
-            print(f"✅ Video #{image_num} Completed!")
-            send_telegram_video(video_filename, f"🎬 Scene #{image_num} Video Ready!")
-
 async def main():
     machine_id = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    total_machines = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    total_machines = int(sys.argv[2]) if len(sys.argv) > 2 else 5
 
     video_prompts = read_video_prompts()
     
@@ -194,7 +77,7 @@ async def main():
 
     all_images = sorted([f for f in os.listdir(IMAGE_DIR) if f.startswith("Generated_Image_") and f.endswith(".jpg")])
     if not all_images:
-        print("❌ No images found in bing_automated_images folder!")
+        print("❌ No images found!")
         return
 
     chunk_size = math.ceil(len(all_images) / total_machines)
@@ -203,10 +86,10 @@ async def main():
     assigned_images = all_images[start_idx:end_idx]
 
     if not assigned_images:
-        print(f"⚠️ Machine {machine_id} has no assigned videos.")
+        print(f"⚠️ Machine {machine_id} has no assigned images.")
         return
 
-    print(f"🖥️ Machine {machine_id} of {total_machines} generating {len(assigned_images)} video task(s).")
+    print(f"🖥️ Machine {machine_id} processing {len(assigned_images)} image(s) on a fresh IP.")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -220,7 +103,112 @@ async def main():
             img_path = os.path.join(IMAGE_DIR, img_name)
             motion_prompt = video_prompts.get(img_num, "Cinematic slow motion movement")
             
-            await process_image_to_video(page, img_path, img_num, motion_prompt, machine_id)
+            print(f"\n🎬 Processing Video #{img_num}...")
+            await page.goto("https://upsampler.com/free-video-generator-no-signup", wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(3)
+
+            try:
+                accept_btn = page.get_by_role("button", name="Accept")
+                if await accept_btn.is_visible(timeout=3000):
+                    await accept_btn.click()
+            except Exception:
+                pass
+
+            file_input = page.locator("input[type='file']").first
+            await file_input.set_input_files(img_path)
+            await asyncio.sleep(3)
+
+            selectors = [
+                "input[placeholder*='prompt' i]",
+                "textarea[placeholder*='prompt' i]",
+                "input[placeholder*='Describe' i]",
+                "textarea[placeholder*='Describe' i]",
+                "textarea",
+                "input[type='text']"
+            ]
+            for sel in selectors:
+                loc = page.locator(sel).first
+                if await loc.is_visible(timeout=2000):
+                    try:
+                        await loc.fill(motion_prompt)
+                        break
+                    except Exception:
+                        continue
+
+            try:
+                duration_dropdown = page.get_by_text("3 seconds")
+                if await duration_dropdown.is_visible(timeout=2000):
+                    await duration_dropdown.click()
+                    await asyncio.sleep(1)
+                    await page.get_by_text("5 seconds", exact=True).click()
+            except Exception:
+                pass
+
+            generate_btn = page.get_by_role("button", name="Generate Video", exact=True)
+            if not await generate_btn.is_visible(timeout=3000):
+                generate_btn = page.locator("button:has-text('Generate')").first
+
+            gpu_error = page.get_by_text("free GPUs are in high demand", exact=False)
+            ip_limit_error = page.get_by_text("used up today's free runs", exact=False)
+
+            started = False
+            for attempt in range(1, 10):
+                if await generate_btn.is_visible():
+                    await generate_btn.click()
+                await asyncio.sleep(5)
+
+                if await ip_limit_error.is_visible():
+                    print(f"❌ IP Limit hit on Machine {machine_id}!")
+                    break
+                elif await gpu_error.is_visible():
+                    print(f"⚠️ GPU busy, retrying...")
+                    await asyncio.sleep(6)
+                else:
+                    started = True
+                    break
+
+            if not started:
+                continue
+
+            see_result_btn = page.locator("button:has-text('See result'), a:has-text('See result')").first
+            video_element = page.locator("video:not([src*='_static'])").first
+
+            start_time = time.time()
+            video_ready = False
+
+            while time.time() - start_time < 360:
+                await asyncio.sleep(4)
+                if await see_result_btn.is_visible():
+                    await see_result_btn.click()
+                    await asyncio.sleep(2)
+
+                if await video_element.count() > 0 and await video_element.is_visible():
+                    video_ready = True
+                    break
+
+            if video_ready:
+                pre_video_shot = f"pre_video_m{machine_id}_v{img_num}.png"
+                await page.screenshot(path=pre_video_shot)
+                send_telegram_photo(pre_video_shot, f"📸 Video #{img_num} Ready! Downloading in 4 seconds...")
+                await asyncio.sleep(4)
+
+                video_filename = os.path.join(VIDEO_DIR, f"Video_{img_num}.mp4")
+                video_src = await video_element.get_attribute("src")
+
+                if video_src:
+                    download_btn = page.locator("a:has-text('Download'), button:has-text('Download')").first
+                    if await download_btn.is_visible():
+                        async with page.expect_download() as download_info:
+                            await download_btn.click()
+                        download = await download_info.value
+                        await download.save_as(video_filename)
+                    else:
+                        v_data = requests.get(video_src).content
+                        with open(video_filename, "wb") as f:
+                            f.write(v_data)
+
+                    print(f"✅ Video #{img_num} Completed!")
+                    send_telegram_video(video_filename, f"🎬 Scene #{img_num} Video Ready!")
 
         monitor_task.cancel()
         await browser.close()
