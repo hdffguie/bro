@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 2  # 🔥 Sirf 2 machines ek sath chalengi taaki naye IP ke sath limit cross na ho
+      max-parallel: 2  # 🔥 Ek waqt par sirf 2 machines (2 alag IPs) chalengi
       matrix:
         machine_id: ${{ fromJson(needs.generate-images.outputs.matrix) }}
 
@@ -68,7 +68,7 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python generate_video.py ${{ matrix.machine_id }} 1
+      run: python generate_video.py ${{ matrix.machine_id }}
 
     - name: Save Video Artifact
       if: always()
