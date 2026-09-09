@@ -4,63 +4,64 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-pipeline:
+  generate-images:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Setup Python
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-
-    - name: Install Dependencies & Playwright
-      run: |
+    - run: |
         pip install -r requirements.txt
         playwright install chromium
         playwright install-deps chromium
-
-    # STEP 1: Generate All Images Sequentially
     - name: Run Bing Image Generator
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: python main.py --machine_id 1 --total_machines 1
 
-    # STEP 2: Run Dynamic Video Generation (Max 3 Machines in Parallel)
+    - name: Save Images Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bing_images
+        path: bing_automated_images/
+
+  generate-videos:
+    needs: generate-images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 2  # 🔥 Ek sath sirf 2 machines chalengi taaki IP limit na aaye!
+      matrix:
+        machine_id: [1, 2, 3, 4, 5] # Jitni images hain us hisab se yahan numbers badha sakte ho
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Download Images Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: bing_images
+        path: bing_automated_images/
+
+    - run: |
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+
     - name: Run Upsampler Video Generator
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: |
-        python -c "
-        import os, math
-        image_dir = 'bing_automated_images'
-        if os.path.exists(image_dir):
-            images = [f for f in os.listdir(image_dir) if f.startswith('Generated_Image_') and f.endswith('.jpg')]
-            total = len(images)
-            print(f'Total Images Found: {total}')
-            if total > 0:
-                # Max 3 machines chalengi
-                total_machines = min(3, total)
-                print(f'Spawning {total_machines} parallel machine(s)...')
-                for m_id in range(1, total_machines + 1):
-                    print(f'--- Running Machine {m_id} of {total_machines} ---')
-                    os.system(f'python generate_video.py {m_id} {total_machines}')
-        "
+      run: python generate_video.py ${{ matrix.machine_id }} 5
 
-    # STEP 3: Compress All Videos into a Single ZIP
-    - name: Create Videos ZIP Archive
-      if: always()
-      run: |
-        zip -r generated_videos.zip generated_videos/
-
-    # STEP 4: Upload ZIP to GitHub Artifacts
-    - name: Upload Videos ZIP Artifact
+    - name: Save Video Artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: All_Generated_Videos_ZIP
-        path: generated_videos.zip
+        name: video_machine_${{ matrix.machine_id }}
+        path: generated_videos/
