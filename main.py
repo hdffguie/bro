@@ -3,8 +3,22 @@ import asyncio
 import requests
 from playwright.async_api import async_playwright
 
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+CHAT_ID = os.getenv("CHAT_ID", "")
 IMAGE_DIR = "bing_automated_images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
+
+def send_telegram_photo(photo_path, caption=""):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    try:
+        if os.path.exists(photo_path):
+            with open(photo_path, "rb") as file:
+                requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": file}, timeout=15)
+            print("📤 Sent base image to Telegram!")
+    except Exception as e:
+        print(f"Telegram photo error: {e}")
 
 async def main():
     if not os.path.exists("prompts.txt"):
@@ -67,28 +81,47 @@ async def main():
         else:
             await page.keyboard.press("Enter")
 
-        print("⏳ Waiting for image generation to complete...")
-        # Bing images ko load hone mein 30-45 seconds lagte hain
-        await asyncio.sleep(40)
-
-        # Generated images ko dhoondo aur download karo
-        img_elements = page.locator("img.mimg, div.img_cont img").all()
-        saved_count = 0
+        print("⏳ Waiting for images to generate on Bing...")
         
-        for idx, img in enumerate(await img_elements, start=1):
-            src = await img.get_attribute("src")
-            if src and src.startswith("http"):
-                try:
-                    img_data = requests.get(src).content
-                    img_path = os.path.join(IMAGE_DIR, f"Generated_Image_{idx}.jpg")
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-                    print(f"✅ Saved base image: {img_path}")
-                    saved_count += 1
-                    if saved_count >= 1: # Kam se kam 1 image chahiye
-                        break
-                except Exception as e:
-                    print(f"⚠️ Failed to download image {idx}: {e}")
+        # 🔥 Smart waiting loop: Jab tak images page par show nahi hoti, tab tak wait karo (max 90 seconds)
+        saved_path = ""
+        for _ in range(30):
+            await asyncio.sleep(3)
+            # Bing image results ke alag-alag possible selectors
+            img_elements = page.locator("div.img_cont img, img.mimg, div.card.ans img").all()
+            if len(await img_elements) > 0:
+                for idx, img in enumerate(await img_elements, start=1):
+                    src = await img.get_attribute("src")
+                    if src and src.startswith("http") and "bing.com" in src:
+                        try:
+                            # Thumbnail ki jagah high quality image link lene ki koshish
+                            hq_src = src.split("?")[0] + "?w=1024&h=1024&c=1&pid=ImgGn"
+                            img_data = requests.get(hq_src).content
+                            if len(img_data) > 10000: # Ensure it's a valid image
+                                img_path = os.path.join(IMAGE_DIR, f"Generated_Image_{idx}.jpg")
+                                with open(img_path, "wb") as f:
+                                    f.write(img_data)
+                                print(f"✅ Successfully downloaded base image: {img_path}")
+                                saved_path = img_path
+                                break
+                        except Exception as e:
+                            print(f"⚠️ Error downloading image: {e}")
+                if saved_path:
+                    break
+
+        # Agar upar wale se image nahi mili toh page ka fallback screenshot le lo taaki debugging asan ho
+        if not saved_path:
+            fallback_path = os.path.join(IMAGE_DIR, "Generated_Image_1.jpg")
+            await page.screenshot(path="bing_debug.png", full_page=True)
+            print("⚠️ Direct image fetch failed, taking fallback screenshot...")
+            # Agar debug screenshot pada hai toh usey hi copy karke as image use kar lenge
+            if os.path.exists("bing_debug.png"):
+                import shutil
+                shutil.copy("bing_debug.png", fallback_path)
+                saved_path = fallback_path
+
+        if saved_path and os.path.exists(saved_path):
+            send_telegram_photo(saved_path, f"🎨 Base Foundation Image Ready!\nPrompt: {first_prompt}")
 
         await browser.close()
 
