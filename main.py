@@ -92,14 +92,12 @@ def run_browser_worker(worker_id, tasks_list):
                             break
                     
                     if img_url:
-                        # Download se thik 5 sec pehle screenshot
                         pre_shot = os.path.join(SAVE_FOLDER, f"pre_download_{image_num}.png")
                         page.screenshot(path=pre_shot)
                         send_telegram_photo(pre_shot, f"📸 Image #{image_num} Ready! Downloading in 5 seconds...")
                         time.sleep(5)
                         break 
                 
-                # Single download & Telegram push
                 if img_url:
                     filepath = os.path.join(SAVE_FOLDER, f"Generated_Image_{image_num}.jpg")
                     if download_image(img_url, filepath):
@@ -116,8 +114,8 @@ def run_browser_worker(worker_id, tasks_list):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--machine_id", type=int, required=True)
-    parser.add_argument("--total_machines", type=int, default=5)
+    parser.add_argument("--machine_id", type=int, default=1)
+    parser.add_argument("--total_machines", type=int, default=1)
     args = parser.parse_args()
     
     if not os.path.exists(PROMPT_FILE):
@@ -139,8 +137,8 @@ if __name__ == "__main__":
     chunk_size = math.ceil(total_prompts / args.total_machines)
     start_idx = (args.machine_id - 1) * chunk_size
     end_idx = min(start_idx + chunk_size, total_prompts)
-    
     machine_tasks = all_tasks[start_idx:end_idx]
+    
     if len(machine_tasks) == 0:
         sys.exit(0)
         
@@ -150,6 +148,6 @@ if __name__ == "__main__":
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         if worker_1_tasks:
-            executor.submit(run_browser_worker, (args.machine_id - 1) * 2 + 1, worker_1_tasks)
+            executor.submit(run_browser_worker, 1, worker_1_tasks)
         if worker_2_tasks:
-            executor.submit(run_browser_worker, (args.machine_id - 1) * 2 + 2, worker_2_tasks)
+            executor.submit(run_browser_worker, 2, worker_2_tasks)
