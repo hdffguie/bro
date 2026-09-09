@@ -37,7 +37,7 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={'width': 1280, 'height': 720})
+        context = await browser.new_context(accept_downloads=True, viewport={'width': 1920, 'height': 1080})
         page = await context.new_page()
 
         await page.goto("https://www.bing.com/create", wait_until="domcontentloaded", timeout=60000)
@@ -81,49 +81,58 @@ async def main():
         else:
             await page.keyboard.press("Enter")
 
-        print("⏳ Waiting for images to generate on Bing...")
+        print("⏳ Waiting for images to generate...")
         
-        # 🔥 Smart waiting loop: Jab tak images page par show nahi hoti, tab tak wait karo (max 90 seconds)
         saved_path = ""
-        for _ in range(30):
-            await asyncio.sleep(3)
-            # Bing image results ke alag-alag possible selectors
-            img_elements = page.locator("div.img_cont img, img.mimg, div.card.ans img").all()
-            if len(await img_elements) > 0:
-                for idx, img in enumerate(await img_elements, start=1):
-                    src = await img.get_attribute("src")
-                    if src and src.startswith("http") and "bing.com" in src:
-                        try:
-                            # Thumbnail ki jagah high quality image link lene ki koshish
-                            hq_src = src.split("?")[0] + "?w=1024&h=1024&c=1&pid=ImgGn"
-                            img_data = requests.get(hq_src).content
-                            if len(img_data) > 10000: # Ensure it's a valid image
-                                img_path = os.path.join(IMAGE_DIR, f"Generated_Image_{idx}.jpg")
-                                with open(img_path, "wb") as f:
-                                    f.write(img_data)
-                                print(f"✅ Successfully downloaded base image: {img_path}")
-                                saved_path = img_path
-                                break
-                        except Exception as e:
-                            print(f"⚠️ Error downloading image: {e}")
-                if saved_path:
+        img_path = os.path.join(IMAGE_DIR, "Generated_Image_1.jpg")
+
+        for _ in range(35):
+            await asyncio.sleep(4)
+            
+            # 1. Pehle pehli generated thumbnail par click karo taակի wo badi view window mein khul jaye
+            try:
+                thumbnail = page.locator("div.img_cont img, img.mimg, div.card.ans img").first
+                if await thumbnail.is_visible():
+                    await thumbnail.click()
+                    await asyncio.sleep(2)
+            except Exception:
+                pass
+
+            # 2. Ab screenshot mein dikh rahe official Download button ko target karo
+            try:
+                # Screenshot ke anusaar download button ke paas download icon ya text hota hai
+                download_btn = page.locator("a:has-text('Download'), button:has-text('Download'), [aria-label*='Download'], svg.download, button:has(svg)").filter(has_text=re.compile(r"Download", re.I)).first
+                
+                # Agar text se na mile toh common download icon selector try karo
+                if not await download_btn.is_visible():
+                    download_btn = page.locator("a[download], button[title*='Download' i]").first
+
+                if await download_btn.is_visible():
+                    async with page.expect_download() as download_info:
+                        await download_btn.click()
+                    download = await download_info.value
+                    await download.save_as(img_path)
+                    print(f"✅ Successfully downloaded original HD image: {img_path}")
+                    saved_path = img_path
                     break
+            except Exception as e:
+                pass
 
-        # Agar upar wale se image nahi mili toh page ka fallback screenshot le lo taaki debugging asan ho
-        if not saved_path:
-            fallback_path = os.path.join(IMAGE_DIR, "Generated_Image_1.jpg")
-            await page.screenshot(path="bing_debug.png", full_page=True)
-            print("⚠️ Direct image fetch failed, taking fallback screenshot...")
-            # Agar debug screenshot pada hai toh usey hi copy karke as image use kar lenge
-            if os.path.exists("bing_debug.png"):
-                import shutil
-                shutil.copy("bing_debug.png", fallback_path)
-                saved_path = fallback_path
+            if saved_path:
+                break
 
-        if saved_path and os.path.exists(saved_path):
-            send_telegram_photo(saved_path, f"🎨 Base Foundation Image Ready!\nPrompt: {first_prompt}")
+        # Fallback: Agar direct download trigger na ho toh high-res element screenshot le lo
+        if not os.path.exists(img_path) or os.path.getsize(img_path) < 10000:
+            main_img = page.locator("div.img_cont img, img.mimg").first
+            if await main_img.is_visible():
+                await main_img.screenshot(path=img_path)
+                print("⚠️ Saved via HD element crop fallback.")
+
+        if os.path.exists(img_path):
+            send_telegram_photo(img_path, f"🎨 HD Base Image Ready!\nPrompt: {first_prompt}")
 
         await browser.close()
 
+import re
 if __name__ == "__main__":
     asyncio.run(main())
