@@ -1,0 +1,115 @@
+name: Seamless Chained AI Video Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-base-image:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - run: |
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+        python main.py
+        
+    - name: Save Pipeline Assets
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline_assets
+        path: |
+          bing_automated_images/
+          prompts.txt
+
+  prepare-matrix:
+    needs: generate-base-image
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: pipeline_assets
+        path: .
+    - id: set-matrix
+      run: |
+        count=$(grep -c '\[VIDEO\]' prompts.txt || echo "1")
+        echo "Total Video Steps: $count"
+        matrix_json=$(python3 -c "import json; print(json.dumps(list(range(1, $count + 1))))")
+        echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+
+  generate-chained-videos:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        step_id: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Download Assets & Previous Frames
+      uses: actions/download-artifact@v4
+      with:
+        name: pipeline_assets
+        path: .
+
+    - run: |
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+        sudo apt-get update && sudo apt-get install -y ffmpeg
+
+    - name: Run Chained Video Generator
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: python generate_chained_videos.py ${{ matrix.step_id }}
+
+    - name: Save Updated Frame & Videos Artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline_assets
+        path: |
+          generated_videos/
+          chain_frame_*.jpg
+          bing_automated_images/
+          prompts.txt
+
+  finalize-movie:
+    needs: generate-chained-videos
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all_files/
+
+    - name: Merge and Upscale Final Movie
+      run: |
+        sudo apt-get update && sudo apt-get install -y ffmpeg
+        mkdir -p final_output
+        
+        find all_files/ -name "Video_Step_*.mp4" | sort -V > files_list.txt
+        sed -i 's/^/file /' files_list.txt
+        
+        ffmpeg -y -f concat -safe 0 -i files_list.txt -vf "scale=1920:1080:flags=lanczos" -c:v libx264 -crf 18 -c:a aac final_output/Full_Seamless_Movie.mp4
+
+    - name: Upload Final ZIP Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: Final_Seamless_Movie_ZIP
+        path: final_output/
