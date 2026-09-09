@@ -1,4 +1,6 @@
-[IMAGE] A hyper-realistic cinematic close-up of a handsome young man in a cozy cafe, looking at the camera with a warm smile.
-[VIDEO] The man slowly turns his head to the right, looking outside the window thoughtfully.
-[VIDEO] Close-up shot of the man raising his coffee cup to take a sip, smiling gently.
-[VIDEO] The man stands up from the cafe table, adjusting his jacket and walking towards the exit.
+[IMAGE] A cinematic medium shot of a young man and a young woman sitting across a cozy coffee shop table, smiling and talking warmly to each other, soft warm lighting, photorealistic.
+[VIDEO] The young man leans slightly forward while talking, gesturing gently with his hands as the woman listens with a warm, joyful smile. | Dialogue: "Tumne kal ki baat sochi kya?"
+[VIDEO] The young woman laughs softly, looking directly at the man, her eyes sparkling with happiness in the cozy cafe atmosphere. | Dialogue: "Haan, maine sab decide kar liya hai."
+[VIDEO] The man nods in agreement, taking a sip of his coffee while maintaining a warm and friendly eye contact with the woman. | Dialogue: "Sahi hai, fir toh plan pakka raha!"
+[VIDEO] The camera slowly shifts focus to the woman as she begins to speak, her expressions lively and expressive, continuing their deep conversation. | Dialogue: "Bilkul, kal milte hain fir wahin par."
+[VIDEO] Both of them share a bright, happy laugh together, creating a sweet and heartwarming cinematic moment. | Dialogue: "Done! Milte hain kal subah."
