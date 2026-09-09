@@ -25,14 +25,56 @@ async def main():
         context = await browser.new_context(viewport={'width': 1280, 'height': 720})
         page = await context.new_page()
 
-        await page.goto("https://www.bing.com/create", wait_until="domcontentloaded")
+        await page.goto("https://www.bing.com/create", wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(5)
 
-        prompt_input = page.locator("textarea#sb_form_q, textarea[placeholder*='prompt']").first
+        # 🔥 Multiple flexible selectors taaki Bing ka layout badalne par bhi error na aaye
+        selectors = [
+            "textarea#sb_form_q",
+            "textarea[placeholder*='What do you want']",
+            "textarea[placeholder*='prompt' i]",
+            "textarea[aria-label*='Prompt' i]",
+            "textarea",
+            "div[contenteditable='true']"
+        ]
+
+        prompt_input = None
+        for sel in selectors:
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible(timeout=3000):
+                    prompt_input = loc
+                    print(f"✅ Found prompt input using selector: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not prompt_input:
+            print("❌ Could not find the prompt input box on Bing.")
+            await browser.close()
+            return
+
         await prompt_input.fill(first_prompt)
         
-        create_btn = page.locator("button#sb_form_go, button:has-text('Create')").first
-        await create_btn.click()
+        # Create button ke liye bhi flexible selectors
+        create_btn_selectors = [
+            "button#sb_form_go",
+            "button:has-text('Create')",
+            "button[aria-label*='Create']"
+        ]
+        
+        create_btn = None
+        for sel in create_btn_selectors:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=3000):
+                create_btn = loc
+                break
+
+        if create_btn:
+            await create_btn.click()
+        else:
+            await page.keyboard.press("Enter")
+
         print("⏳ Waiting for base image generation...")
         await asyncio.sleep(25)
 
