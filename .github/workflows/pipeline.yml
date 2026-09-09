@@ -1,4 +1,4 @@
-name: Automated Image and Video Generator Pipeline
+name: Automated Image and Video Pipeline
 
 on:
   workflow_dispatch:
@@ -7,11 +7,6 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     
-    strategy:
-      fail-fast: false
-      matrix:
-        machine_id: [1, 2, 3, 4, 5]
-
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -27,31 +22,45 @@ jobs:
         playwright install chromium
         playwright install-deps chromium
 
-    # STAGE 1: Bing Image Generator (With Live 10s Telegram Screenshots)
+    # STEP 1: Generate All Images Sequentially
     - name: Run Bing Image Generator
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python main.py --machine_id ${{ matrix.machine_id }} --total_machines 5
+      run: python main.py --machine_id 1 --total_machines 1
 
-    # STAGE 2: Upsampler Image-to-Video Generator
+    # STEP 2: Run Dynamic Video Generation (Max 3 Machines in Parallel)
     - name: Run Upsampler Video Generator
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python generate_video.py ${{ matrix.machine_id }} 5
+      run: |
+        python -c "
+        import os, math
+        image_dir = 'bing_automated_images'
+        if os.path.exists(image_dir):
+            images = [f for f in os.listdir(image_dir) if f.startswith('Generated_Image_') and f.endswith('.jpg')]
+            total = len(images)
+            print(f'Total Images Found: {total}')
+            if total > 0:
+                # Max 3 machines chalengi
+                total_machines = min(3, total)
+                print(f'Spawning {total_machines} parallel machine(s)...')
+                for m_id in range(1, total_machines + 1):
+                    print(f'--- Running Machine {m_id} of {total_machines} ---')
+                    os.system(f'python generate_video.py {m_id} {total_machines}')
+        "
 
-    # STAGE 3: Save Output Artifacts
-    - name: Save Images Artifacts
+    # STEP 3: Compress All Videos into a Single ZIP
+    - name: Create Videos ZIP Archive
+      if: always()
+      run: |
+        zip -r generated_videos.zip generated_videos/
+
+    # STEP 4: Upload ZIP to GitHub Artifacts
+    - name: Upload Videos ZIP Artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: Images_Machine_${{ matrix.machine_id }}
-        path: bing_automated_images/
-
-    - name: Save Videos Artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: Videos_Machine_${{ matrix.machine_id }}
-        path: generated_videos/
+        name: All_Generated_Videos_ZIP
+        path: generated_videos.zip
