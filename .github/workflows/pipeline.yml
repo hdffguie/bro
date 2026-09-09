@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 2  # 🔥 Ek waqt par sirf 2 machines (2 alag IPs) chalengi
+      max-parallel: 2
       matrix:
         machine_id: ${{ fromJson(needs.generate-images.outputs.matrix) }}
 
@@ -77,26 +77,31 @@ jobs:
         name: video_machine_${{ matrix.machine_id }}
         path: generated_videos/
 
-  zip-and-finish:
+  post-process-and-zip:
     needs: generate-videos
     runs-on: ubuntu-latest
     if: always()
     steps:
     - uses: actions/checkout@v4
     
+    - name: Install FFmpeg
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
     - name: Download All Video Artifacts
       uses: actions/download-artifact@v4
       with:
         path: all_downloaded_videos/
 
-    - name: Create Single ZIP Package
-      run: |
-        mkdir -p final_output
-        find all_downloaded_videos/ -type f -name "*.mp4" -exec cp {} final_output/ \;
-        zip -r final_all_videos.zip final_output/
+    - name: Run Video Polishing Script
+      run: python process_videos.py
 
-    - name: Upload Final ZIP Artifact
+    - name: Create Final ZIP Package
+      run: |
+        cd final_output
+        zip -r ../final_polished_videos.zip .
+
+    - name: Upload Polished ZIP Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: All_Generated_Videos_ZIP
-        path: final_all_videos.zip
+        name: Polished_Videos_ZIP
+        path: final_polished_videos.zip
