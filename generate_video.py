@@ -12,8 +12,6 @@ IMAGE_DIR = "bing_automated_images"
 VIDEO_DIR = "generated_videos"
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
-with open(os.path.join(VIDEO_DIR, ".keep"), "w") as f:
-    f.write("")
 
 def send_telegram_photo(photo_path, caption=""):
     if not BOT_TOKEN or not CHAT_ID:
@@ -160,7 +158,7 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
             break
 
     if video_ready:
-        # Video download hone se 4 sec pehle final screenshot
+        # Video download hone se exact 4 second pehle preview screenshot
         pre_video_shot = f"pre_video_m{machine_id}_v{image_num}.png"
         await page.screenshot(path=pre_video_shot)
         send_telegram_photo(pre_video_shot, f"📸 Video #{image_num} Ready! Downloading in 4 seconds...")
@@ -186,7 +184,7 @@ async def process_image_to_video(page, image_path, image_num, motion_prompt, mac
 
 async def main():
     machine_id = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    total_machines = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+    total_machines = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 
     video_prompts = read_video_prompts()
     
@@ -208,7 +206,7 @@ async def main():
         print(f"⚠️ Machine {machine_id} has no assigned videos.")
         return
 
-    print(f"🖥️ Machine {machine_id} generating {len(assigned_images)} video task(s).")
+    print(f"🖥️ Machine {machine_id} of {total_machines} generating {len(assigned_images)} video task(s).")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
