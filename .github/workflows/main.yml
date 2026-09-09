@@ -17,6 +17,14 @@ jobs:
         playwright install-deps chromium
         python main.py
         
+    - name: Verify Base Image Exists
+      run: |
+        ls -la bing_automated_images/
+        if [ -z "$(ls -A bing_automated_images/)" ]; then
+           echo "❌ Error: Base image was not generated!"
+           exit 1
+        fi
+
     - name: Save Pipeline Assets
       uses: actions/upload-artifact@v4
       with:
